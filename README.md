@@ -37,7 +37,7 @@ If you find this work useful, please cite:
 
 ```bibtex
 @inproceedings{kim2026instanthand,
-  title     = {InstantHand: Feed-Forward 3D Gaussian Splatting for Animatable Hand Avatar Reconstruction from a Single Image},
+  title     = {{InstantHand}: Feed-Forward {3D} {Gaussian} Splatting for Animatable Hand Avatar Reconstruction from a Single Image},
   author    = {Kim, Chanho and Ali, Muhammad Salman and Gwak, Kyeonghwan and Shaheryar, Muhammad and Park, Incheol and On, Jeongwan and Baek, Seungryul},
   booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
   year      = {2026}

@@ -12,8 +12,8 @@ Incheol Park,
 
 [UNIST Vision & Learning Lab](https://vision.unist.ac.kr/), UNIST
 
-<!-- Replace "(coming soon)" with a link when the paper and arXiv versions are public -->
-**[Project Page](https://coolho1129.github.io/InstantHand-page/) | Paper (coming soon) | arXiv (coming soon)**
+<!-- Replace "(coming soon)" with a link to the first public version of the paper (OpenReview, arXiv, or proceedings) -->
+**[Project Page](https://coolho1129.github.io/InstantHand-page/) | Paper (coming soon)**
 
 <p align="center">
   <img src="assets/teaser.webp" width="100%" alt="A single input hand image, one forward pass, and the reconstructed canonical 3D Gaussian hand avatar rotating.">

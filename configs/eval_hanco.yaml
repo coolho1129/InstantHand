@@ -1,0 +1,63 @@
+# InstantHand evaluation on HanCo (zero-shot)
+#   python eval_hanco.py --cfg configs/eval_hanco.yaml
+
+# ---- evaluation ----
+handavatar_cfg: ./external/handavatar/configs/hanco/191_scale1.yaml
+ckpt_dir: ./exps/neurips2026/stage2_best      # directory containing model.safetensors
+device: cuda
+max_batches: -1       # -1: all test frames
+pp_mode: rotate       # principal point: rotate (exact) | none (only for a rasterizer that honours cx, cy)
+
+# ---- anchor image (the single input image the avatar is built from; HanCo 0191, cam6, frame 75) ----
+anchor_image: ./data/HanCo/0191/anchor/rgb/cam6_00000075.jpg
+anchor_mask: ./data/HanCo/0191/anchor/mask/cam6_00000075.png
+anchor_pkl: ./data/HanCo/0191/anchor/anno/0191_cam6_00000075_scale1.pkl
+
+# ---- model (must match the checkpoint) ----
+model:
+  mano_model_path: ./instanthand/models/rendering/mano_model/
+
+  # image encoder
+  encoder_type: dinov3_fusion
+  encoder_model_name: dinov3_vitl16
+  encoder_weights_path: ./instanthand/models/encoders/dinov3/weights/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
+  encoder_feat_dim: 1024
+  encoder_freeze: true
+  encoder_grad_ckpt: false
+
+  # transformer
+  transformer_type: sd3_cond
+  transformer_dim: 512
+  transformer_layers: 2
+  transformer_heads: 8
+  tf_grad_ckpt: false
+  pcl_dim: 512
+  num_pcl: 1024
+
+  # canonical Gaussians on the subdivided MANO mesh
+  latent_query_points_type: e2e_mano
+  mano_subdivide_num: 3
+  gs_use_rgb: true
+  gs_sh: 3
+  gs_mlp_network_config:
+    n_neurons: 512
+    n_hidden_layers: 2
+    activation: silu
+  gs_xyz_offset_max_step: 0.001   
+  gs_clip_scaling: 0.008          
+  scale_sphere: true
+  fix_opacity: true
+  fix_rotation: true
+
+  # appearance transfer head
+  use_appearance_head: true
+  appearance_head_cfg:
+    hidden_dim: 384
+    num_heads: 8
+    basis_size: 64
+    source_encoder_feat_dim: 64
+    evidence_dropout_prob: 0.1
+    observed_mask_threshold: 0.5
+    dino_feat_dim: 1024
+    identity_delta_scale: 0.1
+    global_gate_init_bias: -1.5

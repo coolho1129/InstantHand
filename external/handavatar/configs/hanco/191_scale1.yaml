@@ -1,0 +1,254 @@
+category: 'handavatar'
+task: 'hanco'
+subject: '0191'
+experiment: 'pretrained_model_scale1'
+phase: 'val'
+
+##############################################
+## Data Configuration
+
+train:
+  dataset_module: 'external.handavatar.core.data.hanco.train'
+  dataset: 'hanco_train'
+  maxiter: 3000000
+  maxepoch: 50
+  lr_decay_rate: 0.1
+  lr: 0.0005
+  lr_smpl_body: 0.00005
+  lossweights:
+    lpips: 1.0
+    l1: 1.0
+    sil: 1.0
+    iou3d: 1.0
+  accum_iter: 8
+  save_model_interval: 20000
+  perturb: 1.
+  batch_size: 1
+  shuffle: True
+  drop_last: False
+  num_workers: 4
+  ray_shoot_mode: 'patch'
+  optimizer: 'adam'
+  log_interval: 100
+  save_checkpt_interval: 10000
+
+progress:
+  dataset_module: 'external.handavatar.core.data.hanco.train'
+  dataset: 'hanco_test'
+  subject: '0191'
+  skip: 1
+  dump_interval: 5000
+  batch_size: 1
+  shuffle: False
+  drop_last: False
+  num_workers: 4
+
+infer:
+  dataset_module: 'external.handavatar.core.data.hanco.camsys'
+  dataset: 'hanco_test'
+  subject: [
+            '0191',
+           ]
+  frame: []
+  skip: 1
+  vert_color: True
+  soft: True
+  save_all: 1
+  batch_size: 1
+  shuffle: False
+  drop_last: False
+  num_workers: 0
+
+movement:
+  batch_size: 1
+  shuffle: False
+  drop_last: False
+  num_workers: 0
+
+freeview:
+  batch_size: 1
+  shuffle: False
+  drop_last: False
+  num_workers: 0
+  frame_idx: 0
+  axis: 'y'
+
+tpose:
+  batch_size: 1
+  shuffle: False
+  num_workers: 0
+  drop_last: False
+
+freepose:
+  batch_size: 1
+  shuffle: False
+  num_workers: 0
+  drop_last: False
+  axis: 'x'
+  joint_rot: [[0, 0, 0],
+              [[0, 90], 0, 0],
+              [[0, 80], 0, 0],
+              [[0, 80], 0, 0],
+              [[0, 100], 0, 0],
+              [[0, 80], 0, 0],
+              [[0, 80], 0, 0],
+              [[0, 90], 0, 0],
+              [[0, 80], 0, 0],
+              [[0, 80], 0, 0],
+              [[0, 90], 0, 0],
+              [[0, 80], [0, 10], 0],
+              [[0, 80], 0, 0],
+              [0, 0, [0, 50]],
+              [0, [0, 20], 0],
+              [[0, 90], 0, 0]]
+
+##############################################
+## Modules Configuration
+
+smpl_cfg:
+  model_type: 'mano'
+  flat_hand_mean: True
+  gender: 'neutral'
+  use_pca: False
+  is_rhand: True
+  center_id: 4
+  scale: 1
+  seal: True
+  distal: True
+  num_betas: 10
+  model_path: './instanthand/models/rendering/mano_model/'
+  pairof_name: 'external.handavatar.core.nets.external.handavatar.pairof.pairof_render'
+  pairof_pretrain: 'pairof/out/pretrained_pairof/pairof.ckpt'
+  neighbor: 4
+  n_samples: 256
+  extended_dist: 0.01
+  local_en_dim: 64
+  part_en_dim: 64
+  en_part_normal: True
+  fusion_pool: False
+  decoder_layer: [4, 128]
+  inbox_feat: False
+  pre_train: ''
+  level_set: 0.5
+  bbox_padding: 2.0
+  sigma: 0.05
+  soft_beta: 0.05
+  softmax_out: True
+  manohd: 2
+  lbs_weights: 'smplx/out/pretrained_lbs_weights/lbs_weights.pth'
+  global_sample_num: 4096
+
+deform_network:
+  module: 'external.handavatar.core.nets.external.handavatar.deform_network.deform_network'
+  feature_vector_size: 45
+  d_in: 3
+  d_out: 3
+  dims: [128, 128, 128, 128]
+  multires: 6
+  embedder: 'external.handavatar.core.nets.external.handavatar.embedders.embedder'
+  hidden_feats: 256
+  hidden_layers: 6
+  in_feat: 35
+  cond_feats: 135
+  num_verts: 12337
+  normal_frame: False
+
+shadow_network:
+  module: 'external.handavatar.core.nets.external.handavatar.shadow_network.shadow_network'
+  d_in: 85
+  d_out: 1
+  dims: [256, 256, 256, 256]
+  skip_in: [2]
+  pos_embed: 16
+  multires: 3
+  embedder: 'external.handavatar.core.nets.external.handavatar.embedders.embedder'
+
+network_module: 'external.handavatar.core.nets.external.handavatar.network'
+trainer_module: 'external.handavatar.core.train.trainers.external.handavatar.trainer'
+lr_updater_module: 'external.handavatar.core.train.trainers.external.handavatar.lr_updaters.exp_decay'
+optimizer_module: 'external.handavatar.core.train.optimizers.external.handavatar.optimizer'
+
+embedder:
+  module: "external.handavatar.core.nets.external.handavatar.embedders.fourier"
+
+non_rigid_embedder:
+  module: "external.handavatar.core.nets.external.handavatar.embedders.hannw_fourier"
+
+rendering_network:
+  module: 'external.handavatar.core.nets.external.handavatar.canonical_rendering_network.rendering_sdf'
+  d_feature: 128
+  code_dim: 128
+  mode: 'feat'
+  d_in: 0
+  d_out: 3
+  multires_view: 0
+  multires_normal: 0
+  multires_pos: 0
+  d_hidden: 256
+  n_layers: 4
+
+canonical_mlp:
+  module: 'external.handavatar.core.nets.external.handavatar.canonical_mlps.mlp_rgb_sigma'
+  mlp_depth: 8
+  mlp_width: 256
+  multires: 10
+  i_embed: 0
+
+mweight_volume:
+  module: 'external.handavatar.core.nets.external.handavatar.mweight_vol_decoders.deconv_vol_decoder'
+  embedding_size: 256
+  volume_size: 32
+  dst_voxel_size: 0.0625
+
+non_rigid_motion_mlp:
+  module: 'external.handavatar.core.nets.external.handavatar.non_rigid_motion_mlps.mlp_offset'
+  condition_code_size: 69
+  mlp_width: 128
+  mlp_depth: 6
+  skips: [4]
+  multires: 6
+  i_embed: 0
+  kick_in_iter: 10000
+  full_band_iter: 50000
+
+pose_decoder:
+  module: 'external.handavatar.core.nets.external.handavatar.pose_decoders.mlp_delta_body_pose'
+  embedding_size: 69
+  mlp_width: 256
+  mlp_depth: 4
+
+## Misc
+
+sex: 'neutral'
+total_bones: 16
+bgcolor: [0., 0., 0.]
+resize_img_scale: 1.0
+bbox_offset: 0.01
+
+resume: True
+load_net: latest
+save_all: True
+
+ignore_deform: False
+ignore_shadow_network: False
+ignore_non_rigid_motions: True
+ignore_pose_decoder: True
+ignore_smpl_body: 'encoder'
+
+patch:
+  sample_subject_ratio: 0.8
+  N_patches: 6
+  size: 32
+
+N_samples: 64
+N_importance: 0
+N_3d: 0
+render_frames: 100
+run_geo: False
+
+chunk: 10000
+netchunk_per_gpu: 100000
+n_gpus: 1
+
+show_alpha: False
+show_truth: False

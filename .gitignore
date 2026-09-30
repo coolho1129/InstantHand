@@ -1,0 +1,34 @@
+# experiments / data (symlinks to the original folder)
+/exps
+/data
+
+# weights and checkpoints
+*.safetensors
+*.pth
+*.ckpt
+
+# MANO model files: not redistributable (download from https://mano.is.tue.mpg.de)
+instanthand/models/rendering/mano_model/mano/*
+!instanthand/models/rendering/mano_model/mano/mano_mean_params.npz
+!instanthand/models/rendering/mano_model/mano/README.md
+**/MANO_*.pkl
+**/mano_v*/
+
+# demo outputs and local-only inputs
+demo/output*/
+demo/input_local/
+
+# python / tools
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+wandb/
+.vscode/
+.idea/
+
+# rasterizer build
+diff-gaussian-rasterization/build/
+diff-gaussian-rasterization/*.egg-info/
+
+# archives (checkpoints and data are on Google Drive)
+*.zip

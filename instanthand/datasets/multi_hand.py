@@ -95,19 +95,12 @@ class MultiHandDatasetConfig:
     bg_color_choices: Tuple[float, ...] = (0.0, 0.5, 1.0)
     flip_left_hand: bool = True
 
-    # photometric augmentation, one draw shared by the source and all targets (stage 1 only)
-    use_photometric_aug: bool = True
-    stage1_photo_brightness: float = 0.10
-    stage1_photo_contrast: float = 0.10
-    stage1_photo_saturation: float = 0.05
-    stage1_photo_hue: float = 0.00
-    stage1_photo_gamma_min: float = 0.95
-    stage1_photo_gamma_max: float = 1.05
-
     # folders inside a group
     est_dirname: str = "wilor_out"
     rgba_dirname: str = "seg_rgba"
+    rgba_fallback_dirname: str = "sam3"                  # RGBA also looked up in <rgba_dirname>/<this>/
     silhouette_dirname: str = "silhouette"
+    skip_group_dirnames: Tuple[str, ...] = ("meta",)     # subject subfolders that are not groups
 
     # cameras
     use_est_camera: bool = True
@@ -163,7 +156,7 @@ class MultiHandDataset(Dataset):
                 for subject_id in subdirs(droot):
                     subj_root = os.path.join(droot, subject_id)
                     groups = []
-                    for gname in (g for g in subdirs(subj_root) if g != "meta"):
+                    for gname in (g for g in subdirs(subj_root) if g not in cfg.skip_group_dirnames):
                         group_root = os.path.join(subj_root, gname)
                         rgba_root = os.path.join(group_root, cfg.rgba_dirname)
                         est_root = os.path.join(group_root, cfg.est_dirname)
@@ -218,8 +211,9 @@ class MultiHandDataset(Dataset):
     def _build_group_meta(self, dataset_name, subject_id, group_id, rgba_root, est_root, sil_root,
                           source_stride) -> Optional[Dict[str, Any]]:
         png_ids = self._list_stems(rgba_root, ".png")
-        if os.path.isdir(os.path.join(rgba_root, "sam3")):
-            png_ids |= self._list_stems(os.path.join(rgba_root, "sam3"), ".png")
+        fallback = os.path.join(rgba_root, self.cfg.rgba_fallback_dirname)
+        if os.path.isdir(fallback):
+            png_ids |= self._list_stems(fallback, ".png")
         frame_ids = sorted(png_ids & self._list_stems(est_root, ".json"), key=self._sort_key_stem)
         if not frame_ids:
             return None
@@ -238,12 +232,12 @@ class MultiHandDataset(Dataset):
     # ------------------------------------------------------------------
     # files
     # ------------------------------------------------------------------
-    @staticmethod
-    def _find_rgba_path(rgba_root: str, frame_id: str) -> str:
-        for p in (os.path.join(rgba_root, f"{frame_id}.png"), os.path.join(rgba_root, "sam3", f"{frame_id}.png")):
+    def _find_rgba_path(self, rgba_root: str, frame_id: str) -> str:
+        fallback = self.cfg.rgba_fallback_dirname
+        for p in (os.path.join(rgba_root, f"{frame_id}.png"), os.path.join(rgba_root, fallback, f"{frame_id}.png")):
             if os.path.exists(p):
                 return p
-        raise FileNotFoundError(f"RGBA not found for frame {frame_id} in {rgba_root} (or its sam3/)")
+        raise FileNotFoundError(f"RGBA not found for frame {frame_id} in {rgba_root} (or its {fallback}/)")
 
     @staticmethod
     def _find_json_path(group: Dict[str, Any], frame_id: str) -> str:
@@ -314,42 +308,6 @@ class MultiHandDataset(Dataset):
     def _pick_bg(self) -> float:
         return float(random.choice(self.cfg.bg_color_choices))
 
-    def _sample_photo_aug_params(self) -> Optional[Dict[str, float]]:
-        """One photometric transform shared by the source and all targets of a sample (stage 1)."""
-        cfg = self.cfg
-        if not cfg.use_photometric_aug or cfg.train_stage == "stage2":
-            return None
-        b, c, s, h = (float(cfg.stage1_photo_brightness), float(cfg.stage1_photo_contrast),
-                      float(cfg.stage1_photo_saturation), float(cfg.stage1_photo_hue))
-        gamma_min = max(float(cfg.stage1_photo_gamma_min), 1e-6)
-        gamma_max = max(float(cfg.stage1_photo_gamma_max), gamma_min)
-        return {
-            "brightness": random.uniform(1.0 - b, 1.0 + b),
-            "contrast": random.uniform(1.0 - c, 1.0 + c),
-            "saturation": random.uniform(1.0 - s, 1.0 + s),
-            "hue": random.uniform(-h, h),
-            "gamma": random.uniform(gamma_min, gamma_max),
-        }
-
-    @staticmethod
-    def _apply_photo_aug_np(rgb: np.ndarray, params: Optional[Dict[str, float]]) -> np.ndarray:
-        """Brightness, contrast, saturation, hue and gamma on an RGB image in [0,1]."""
-        x = rgb.astype(np.float32).clip(0.0, 1.0)
-        if params is None:
-            return x
-        x = x * float(params.get("brightness", 1.0))
-        mean = x.mean(axis=(0, 1), keepdims=True)
-        x = (x - mean) * float(params.get("contrast", 1.0)) + mean
-        gray = 0.299 * x[..., 0:1] + 0.587 * x[..., 1:2] + 0.114 * x[..., 2:3]
-        x = ((x - gray) * float(params.get("saturation", 1.0)) + gray).clip(0.0, 1.0)
-        hue = float(params.get("hue", 0.0))
-        if abs(hue) > 1e-8:
-            hsv = cv2.cvtColor((x * 255.0).clip(0, 255).astype(np.uint8), cv2.COLOR_RGB2HSV).astype(np.float32)
-            hsv[..., 0] = (hsv[..., 0] + hue * 179.0) % 180.0
-            x = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB).astype(np.float32) / 255.0
-        x = np.power(x.clip(1e-6, 1.0), float(params.get("gamma", 1.0)))
-        return x.clip(0.0, 1.0).astype(np.float32)
-
     def _square_bbox_from_kpts(self, kpts2d: np.ndarray) -> Tuple[float, float, float]:
         """Center and side of the square around the finite keypoints, enlarged by kp_enlarge."""
         cfg = self.cfg
@@ -382,8 +340,7 @@ class MultiHandDataset(Dataset):
         return crops, {"full_W": W, "full_H": H, "crop_x0": x0, "crop_y0": y0, "crop_side": float(side)}
 
     def _process_frame_keypoint_centered(self, rgba_path: str, wilor: Dict[str, Any], out_res: int, multiply: int,
-                                         bg_color: float, silhouette_path: Optional[str] = None,
-                                         photo_aug_params: Optional[Dict[str, float]] = None):
+                                         bg_color: float, silhouette_path: Optional[str] = None):
         """Crop, resize and composite one frame.
 
         Returns rgb [1,3,H,W] on the background, mask [1,1,H,W] (alpha > alpha_thr), silhouette
@@ -416,8 +373,7 @@ class MultiHandDataset(Dataset):
 
         out_hw = max(int(out_res // multiply) * int(multiply), int(multiply)) if multiply > 1 else int(out_res)
         mask_interp = cv2.INTER_AREA if cfg.mask_resize == "area" else cv2.INTER_NEAREST
-        rgb_r = self._apply_photo_aug_np(cv2.resize(rgb_c, (out_hw, out_hw), interpolation=cv2.INTER_AREA),
-                                         photo_aug_params)
+        rgb_r = cv2.resize(rgb_c, (out_hw, out_hw), interpolation=cv2.INTER_AREA).astype(np.float32).clip(0.0, 1.0)
         mask_r = (cv2.resize(a_c, (out_hw, out_hw), interpolation=mask_interp) > float(cfg.alpha_thr)).astype(np.float32)
         rgb_out = rgb_r * mask_r[..., None] + float(bg_color) * (1.0 - mask_r[..., None])
         if sil_c is not None:
@@ -486,7 +442,7 @@ class MultiHandDataset(Dataset):
         return self._dedup_keep_order(order + others + [src_ref])[:max(1, self.cfg.max_target_retry_pool)]
 
     def _load_with_retry(self, subject: Dict[str, Any], candidates: List[FrameRef], out_res: int, multiply: int,
-                         focal_override: Optional[torch.Tensor], photo_aug_params: Optional[Dict[str, float]]):
+                         focal_override: Optional[torch.Tensor]):
         """First candidate (in random order, at most max_resample_trials tried) whose hand mask covers
         at least min_mask_ratio of the crop; the first candidate if none does.
 
@@ -505,8 +461,7 @@ class MultiHandDataset(Dataset):
                 wilor["focal_full"] = focal_override
             sil_path = self._find_silhouette_path(group["sil_root"], ref[1])
             bg = self._pick_bg()
-            out = self._process_frame_keypoint_centered(rgba_path, wilor, out_res, multiply, bg, sil_path,
-                                                        photo_aug_params)
+            out = self._process_frame_keypoint_centered(rgba_path, wilor, out_res, multiply, bg, sil_path)
             out[5]["bg"] = float(bg)
             return (ref, wilor) + out
 
@@ -524,10 +479,9 @@ class MultiHandDataset(Dataset):
         subject = self._choose_subject()
         dataset_name = subject["dataset"]
         src_candidates = self._shuffled(subject["all_source_refs"])[:max(1, cfg.max_source_retry_pool)]
-        photo_aug = self._sample_photo_aug_params()
 
         (src_ref, src_wilor, src_rgb, src_mask, src_sil, src_intr, src_cam_t, src_meta) = self._load_with_retry(
-            subject, src_candidates, cfg.source_image_res, cfg.source_multiply, None, photo_aug)
+            subject, src_candidates, cfg.source_image_res, cfg.source_multiply, None)
 
         focal = None
         if cfg.use_est_camera and cfg.fix_focal_by_source:
@@ -541,7 +495,7 @@ class MultiHandDataset(Dataset):
         for bucket in ["self"] * n_self + ["same"] * n_same + ["cross"] * n_cross:
             candidates = self._target_candidates(subject, src_ref, bucket, used if bucket != "self" else set())
             ref, wilor, rgb, mask, sil, intr, cam_t, meta = self._load_with_retry(
-                subject, candidates, cfg.render_image_res, cfg.render_multiply, focal, photo_aug)
+                subject, candidates, cfg.render_image_res, cfg.render_multiply, focal)
             if bucket != "self":
                 used.add(ref)
             targets.append((wilor, rgb, mask, sil, intr, cam_t, meta))

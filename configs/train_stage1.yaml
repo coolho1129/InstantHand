@@ -49,26 +49,7 @@ loss:
     ramp_start: 5000
     ramp_end: 12000
 
-data:
-  root: ./data/train            # <root>/<dataset>/<subject>/<group>/{seg_rgba,wilor_out,silhouette}
-  datasets: null                # null: all datasets listed under `policies`
-  num_workers: 4
-  dataset:                      # MultiHandDatasetConfig
-    subject_sampling: uniform_subject
-    render_image_res: 256
-    source_image_res: 256
-    render_multiply: 16
-    source_multiply: 16
-    kp_enlarge: 1.3
-    force_center_pp: true       # WiLoR cameras: principal point moved to the crop center (single-depth approximation)
-    adjust_cam_t_when_force_center: true
-    use_photometric_aug: false
-  policies:                     # per dataset: sampling weight, source stride, targets per sample (self / same group / other groups)
-    PALM:          {dataset_weight: 0.45, source_stride: 1,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 1, num_cross_group_targets: 4, allow_cross_group: true}
-    InterHand2.6M: {dataset_weight: 0.30, source_stride: 1,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 2, num_cross_group_targets: 3, allow_cross_group: true}
-    HO3D_v3:       {dataset_weight: 0.10, source_stride: 10, num_targets: 6, num_self_targets: 1, num_same_group_targets: 3, num_cross_group_targets: 2, allow_cross_group: true}
-    Goliath:       {dataset_weight: 0.10, source_stride: 5,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 5, num_cross_group_targets: 0, allow_cross_group: false}
-    HARP:          {dataset_weight: 0.05, source_stride: 5,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 5, num_cross_group_targets: 0, allow_cross_group: false}
+data_config: configs/train_data.yaml   # root, dataset settings, `policies.stage1`; override with --set data.<key>=...
 
 model:                          # ModelHAM
   mano_model_path: ./instanthand/models/rendering/mano_model/

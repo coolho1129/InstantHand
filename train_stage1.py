@@ -89,7 +89,7 @@ def _gaussian_attr(out: Dict[str, Any], *keys: str) -> Optional[torch.Tensor]:
 
 
 def main():
-    cfg = load_config("configs/train_stage1.yaml", "InstantHand stage-1 training")
+    cfg = load_config("configs/train_stage1.yaml", "InstantHand stage-1 training", train_stage=TRAIN_STAGE)
     optim_cfg, loss_cfg, data_cfg, out_cfg = cfg["optim"], cfg["loss"], cfg["data"], cfg["output"]
 
     set_seed(cfg["seed"])

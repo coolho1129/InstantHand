@@ -1,0 +1,71 @@
+# InstantHand training data: dataset settings and per-stage sampling policies.
+# Referenced by configs/train_stage1.yaml and configs/train_stage2.yaml (`data_config:`).
+# Every MultiHandDatasetConfig setting is listed explicitly; a missing or unknown key is an error.
+# Values reproduce the released training (both stages).
+# Overrides from the command line still work after loading, e.g. --set data.root=/path/to/train
+
+root: ./data/train              # <root>/<dataset>/<subject>/<group>/{seg_rgba,wilor_out,silhouette}
+datasets: null                  # null: every dataset listed under the stage's `policies`
+num_workers: 4
+
+dataset:                        # MultiHandDatasetConfig (shared by both stages)
+  subject_sampling: uniform_subject      # uniform_subject | by_frames
+
+  # crops: square around the 2D keypoints, enlarged by kp_enlarge, resized
+  render_image_res: 256
+  source_image_res: 256
+  render_multiply: 16                    # resolution snapped down to a multiple of this
+  source_multiply: 16
+  kp_enlarge: 1.3
+  min_side: 32.0
+  bg_color_choices: [0.0, 0.5, 1.0]      # random gray background per frame
+  flip_left_hand: true                   # left hands mirrored to right
+
+  # folders inside a group
+  est_dirname: wilor_out
+  rgba_dirname: seg_rgba
+  rgba_fallback_dirname: sam3            # RGBA also looked up in <rgba_dirname>/<this>/
+  silhouette_dirname: silhouette
+  skip_group_dirnames: [meta]            # subject subfolders that are not groups
+
+  # cameras (WiLoR estimates, kept in camera space)
+  use_est_camera: true
+  fix_focal_by_source: true              # targets use the source focal length
+  force_center_pp: true                  # principal point moved to the crop center (single-depth approximation)
+  adjust_cam_t_when_force_center: true
+
+  # masks
+  alpha_thr: 0.5
+  silhouette_thr: 0.5
+  mask_resize: area                      # area | nearest
+
+  # WiLoR json keys
+  json_keypoints2d_key: pred_keypoints_2d
+  json_cam_t_key: pred_cam_t
+  json_focal_key: focal_length
+  json_mano_key: pred_mano_params
+  json_hand_label_key: hand_label
+
+  # retries: frames whose hand mask covers less than min_mask_ratio of the crop are skipped
+  min_mask_ratio: 0.01
+  max_resample_trials: 20
+  max_source_retry_pool: 32
+  max_target_retry_pool: 64
+  strict: false                          # raise on unreadable groups instead of skipping them
+
+# Per dataset: sampling weight, source stride, and the 6 targets per sample as
+# self / same group / other groups (supplementary Table "Dataset sampling policies").
+policies:
+  stage1:
+    PALM:          {dataset_weight: 0.45, source_stride: 1,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 1, num_cross_group_targets: 4, allow_cross_group: true}
+    InterHand2.6M: {dataset_weight: 0.30, source_stride: 1,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 2, num_cross_group_targets: 3, allow_cross_group: true}
+    HO3D_v3:       {dataset_weight: 0.10, source_stride: 10, num_targets: 6, num_self_targets: 1, num_same_group_targets: 3, num_cross_group_targets: 2, allow_cross_group: true}
+    Goliath:       {dataset_weight: 0.10, source_stride: 5,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 5, num_cross_group_targets: 0, allow_cross_group: false}
+    HARP:          {dataset_weight: 0.05, source_stride: 5,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 5, num_cross_group_targets: 0, allow_cross_group: false}
+  stage2:
+    PALM:          {dataset_weight: 0.35, source_stride: 1,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 1, num_cross_group_targets: 4, allow_cross_group: true}
+    InterHand2.6M: {dataset_weight: 0.30, source_stride: 1,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 2, num_cross_group_targets: 3, allow_cross_group: true}
+    Synthetic:     {dataset_weight: 0.15, source_stride: 1,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 1, num_cross_group_targets: 4, allow_cross_group: true}
+    Goliath:       {dataset_weight: 0.08, source_stride: 5,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 5, num_cross_group_targets: 0, allow_cross_group: false}
+    HARP:          {dataset_weight: 0.04, source_stride: 5,  num_targets: 6, num_self_targets: 1, num_same_group_targets: 5, num_cross_group_targets: 0, allow_cross_group: false}
+    HO3D_v3:       {dataset_weight: 0.08, source_stride: 10, num_targets: 6, num_self_targets: 1, num_same_group_targets: 3, num_cross_group_targets: 2, allow_cross_group: true}

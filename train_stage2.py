@@ -260,7 +260,7 @@ def freeze_all_but_appearance_head(model: ModelHAM) -> None:
 
 
 def main():
-    cfg = load_config("configs/train_stage2.yaml", "InstantHand stage-2 training")
+    cfg = load_config("configs/train_stage2.yaml", "InstantHand stage-2 training", train_stage=TRAIN_STAGE)
     optim_cfg, loss_cfg, data_cfg, out_cfg = cfg["optim"], cfg["loss"], cfg["data"], cfg["output"]
 
     set_seed(cfg["seed"])

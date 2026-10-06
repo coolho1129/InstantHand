@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import os
@@ -32,8 +33,30 @@ from instanthand.datasets.multi_hand import DatasetSamplingPolicy, MultiHandData
 # ---------------------------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------------------------
-def load_config(default_cfg: str, description: str) -> Dict[str, Any]:
-    """Read the YAML config and apply command-line overrides.
+def resolve_data_config(cfg: Dict[str, Any], train_stage: Optional[str]) -> None:
+    """Replace `data_config: <yaml>` by the `data` section it describes (in place).
+
+    The data YAML holds root / datasets / num_workers / dataset and `policies.<stage>`; the
+    policies of `train_stage` become `data.policies`. A config with both `data_config` and
+    `data` is rejected, so that the settings live in one place.
+    """
+    path = cfg.pop("data_config", None)
+    if path is None:
+        return
+    if "data" in cfg:
+        raise ValueError("the config has both `data_config` and `data`; keep the data settings in one place")
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    policies = data.get("policies") or {}
+    if train_stage is None or train_stage not in policies:
+        raise KeyError(f"{path}: no `policies.{train_stage}` (available: {sorted(policies)})")
+    data["policies"] = policies[train_stage]
+    data["config_file"] = str(path)
+    cfg["data"] = data
+
+
+def load_config(default_cfg: str, description: str, train_stage: Optional[str] = None) -> Dict[str, Any]:
+    """Read the YAML config, resolve its `data_config` file and apply command-line overrides.
 
         --cfg configs/train_stage1.yaml
         --resume_dir <accelerate checkpoint dir>
@@ -48,6 +71,7 @@ def load_config(default_cfg: str, description: str) -> Dict[str, Any]:
 
     with open(args.cfg, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+    resolve_data_config(cfg, train_stage)
     for item in args.set:
         if "=" not in item:
             raise SystemExit(f"--set expects KEY=VALUE, got {item!r}")
@@ -71,9 +95,25 @@ def mixed_precision_mode(value) -> str:
 def build_dataset_config(data_cfg: Dict[str, Any], train_stage: str, optimizer_steps_per_epoch: int,
                          batch_size: int, accum_steps: int, world_size: int) -> MultiHandDatasetConfig:
     """MultiHandDatasetConfig from the `data` section. One epoch of the (stochastic) dataset holds
-    as many samples as the optimizer steps of one epoch consume on all processes."""
+    as many samples as the optimizer steps of one epoch consume on all processes.
+
+    Every dataset setting and every policy field must be given (no silent defaults), and every
+    requested dataset needs a policy."""
+    set_here = {"root_dirs", "datasets", "dataset_policies", "steps_per_epoch", "train_stage"}
+    expected = {f.name for f in dataclasses.fields(MultiHandDatasetConfig)} - set_here
+    given = set(data_cfg["dataset"])
+    if given != expected:
+        raise KeyError(f"data.dataset: missing {sorted(expected - given)}, unknown {sorted(given - expected)}")
+    policy_fields = {f.name for f in dataclasses.fields(DatasetSamplingPolicy)}
+    for name, p in data_cfg["policies"].items():
+        if set(p) != policy_fields:
+            raise KeyError(f"data.policies.{name}: missing {sorted(policy_fields - set(p))}, "
+                           f"unknown {sorted(set(p) - policy_fields)}")
     policies = {name: DatasetSamplingPolicy(**p) for name, p in data_cfg["policies"].items()}
     datasets = data_cfg.get("datasets") or list(policies.keys())
+    no_policy = [d for d in datasets if d not in policies]
+    if no_policy:
+        raise KeyError(f"data.datasets without a policy: {no_policy}")
     return MultiHandDatasetConfig(
         root_dirs=data_cfg["root"],
         datasets=tuple(datasets),

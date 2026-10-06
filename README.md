@@ -373,7 +373,7 @@ generated following Zhao et al. (CVPR 2025) in stage 2. Each dataset is converte
 ```
 data/train/
 └── <dataset>/                        PALM, InterHand2.6M, HO3D_v3, Goliath, HARP, Synthetic
-    └── <subject>/                    one hand identity (left and right hands are separate subjects)
+    └── <subject>/                    one hand of one person (e.g. 0001_R, 0001_L)
         ├── meta/                     optional, ignored
         └── <group>/                  one observation bucket: a camera, a sequence, a session, ...
             ├── seg_rgba/<frame>.png      RGBA image, alpha = hand mask (also looked up in seg_rgba/sam3/)
@@ -386,6 +386,13 @@ data/train/
   `configs/train_data.yaml`; only the datasets listed there are used (stage 1 has no `Synthetic`).
   The policy of each dataset sets its sampling weight, the stride of the source frames and the
   6 target frames per sample as self / same group / other groups (Appendix, Table S1).
+- **Left and right hands.** A subject is one hand: put the left and the right hand of a person in
+  separate subject folders (any names; we use `<id>_L` and `<id>_R`). The folder name is not
+  parsed. Whether a frame is mirrored is decided per frame by `hand_label` in its WiLoR json:
+  frames labeled `left` are flipped horizontally (image, mask, silhouette, 2D keypoints and the
+  x of the camera translation) and handled by the right-hand model, as at inference. All frames of a
+  sample come from one subject and share the source betas, so the two hands of a person must not
+  be mixed in one subject folder.
 - **Frames** are the frame ids present in both `seg_rgba/` and `wilor_out/`; frame ids that are
   integers are ordered numerically. A group without any such frame is skipped.
 - **WiLoR json** (one hand per file):

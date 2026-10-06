@@ -32,6 +32,7 @@ pycocotools==2.0.11
 # training
 accelerate==1.12.0
 lpips==0.1.4
+tensorboard==2.21.0
 
 # evaluation (eval_efficient.py only); provides the pynvml module
 nvidia-ml-py==13.615.71

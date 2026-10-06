@@ -8,10 +8,25 @@ device: cuda
 max_batches: -1       # -1: all test frames
 pp_mode: rotate       # principal point: rotate (exact) | none (only for a rasterizer that honours cx, cy)
 
+# ---- pose strata: the same metrics in equal-count bins of the pose change vs. the anchor ----
+pose_strata:
+  enabled: true
+  bins: 3                   # Easy / Medium / Extreme
+
+# ---- temporal stability: consecutive frames of each camera of the continuous sequence ----
+temporal:
+  enabled: true
+  flicker_check: true      # calibration of the supplementary text: brightness jitter of +-1/2/4% on our renders
+
+# ---- self-reconstruction: every test frame is its own source ----
+self_recon:
+  enabled: false            # slow: builds avatars from every test frame (--self_recon to turn on)
+  canonical_train_stage: stage2   # train stage of the head-disabled model; keep equal to eval_efficient.yaml
+
 # ---- anchor image (the single input image the avatar is built from; HanCo 0191, cam6, frame 75) ----
-anchor_image: ./data/HanCo/0191/anchor/rgb/cam6_00000075.jpg
-anchor_mask: ./data/HanCo/0191/anchor/mask/cam6_00000075.png
-anchor_pkl: ./data/HanCo/0191/anchor/anno/0191_cam6_00000075_scale1.pkl
+anchor_image: ./data/eval/HanCo/0191/anchor/rgb/cam6_00000075.jpg
+anchor_mask: ./data/eval/HanCo/0191/anchor/mask/cam6_00000075.png
+anchor_pkl: ./data/eval/HanCo/0191/anchor/anno/0191_cam6_00000075_scale1.pkl
 
 # ---- model (must match the checkpoint) ----
 model:
@@ -43,8 +58,8 @@ model:
     n_neurons: 512
     n_hidden_layers: 2
     activation: silu
-  gs_xyz_offset_max_step: 0.001   
-  gs_clip_scaling: 0.008          
+  gs_xyz_offset_max_step: 0.001
+  gs_clip_scaling: 0.008
   scale_sphere: true
   fix_opacity: true
   fix_rotation: true

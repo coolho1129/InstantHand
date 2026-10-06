@@ -105,7 +105,7 @@ def _to_device(x: Any, device: torch.device) -> Any:
 
 
 def _progress_dataloader():
-    from external.handavatar.core.data.create_dataset2 import create_dataloader  # needs ha_configs.cfg
+    from external.handavatar.core.data.create_dataset import create_dataloader  # needs ha_configs.cfg
 
     return create_dataloader(data_type="progress")
 

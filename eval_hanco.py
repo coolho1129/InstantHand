@@ -4,8 +4,31 @@ The canonical avatar is built once from a single anchor image and then driven to
 every frame of the HanCo evaluation sequence. PSNR, SSIM and LPIPS follow the
 HandAvatar progress protocol.
 
+Pose strata (optional, `pose_strata.enabled`): the same per-frame PSNR / SSIM / LPIPS,
+reported in equal-count bins (Easy / Medium / Extreme) of two pose changes relative to
+the anchor frame:
+    palm  camera-relative palm-orientation change (geodesic distance between the anchor
+          and target global hand rotations, each in its own camera frame)
+    art   finger-articulation change (mean per-joint geodesic distance over the 15 finger
+          joints, global rotation excluded)
+
+Temporal stability (optional, `temporal.enabled`): per camera, consecutive frame pairs
+(t, t+1) of the continuous sequence give
+    d_pred = mean |pred(t+1) - pred(t)|,  d_gt = mean |gt(t+1) - gt(t)|
+over the union of the two ray masks, channel-averaged, on the same composited 8-bit images
+the metrics use. Excess = d_pred - d_gt, reported per camera relative to its mean GT change;
+the summary over cameras averages the per-camera magnitudes ("Mean of |.|"), so opposite
+biases of different cameras do not cancel.
+
+Self-reconstruction (optional, `self_recon.enabled`, a second pass after the results above):
+every evaluation frame serves as its own source. An avatar is built from the frame and
+rendered back into the same frame, with the same crop, ray mask and metrics.
+    w/o transfer  same checkpoint with the appearance head disabled (Stage-1 base colors)
+    Ours          the full model (composed colors)
+
 Usage:
-    python eval_hanco.py --cfg configs/eval_hanco.yaml
+    python eval_hanco.py --cfg configs/eval_hanco.yaml                # main + pose strata + temporal
+    python eval_hanco.py --cfg configs/eval_hanco.yaml --self_recon   # + self-reconstruction (slow)
 """
 from __future__ import annotations
 
@@ -20,16 +43,17 @@ import argparse
 import contextlib
 import io
 import math
+import re
 import warnings
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
 from einops import rearrange
-from safetensors.torch import load_file
 from tqdm import tqdm
 
 from external.handavatar.third_parties.lpips import LPIPS
@@ -216,12 +240,14 @@ def compute_metrics(
     W: int,
     bgcolor01: torch.Tensor,
     lpips_model,
-) -> Tuple[float, float, float]:
+    return_images: bool = False,
+):
     """PSNR / SSIM / LPIPS over the full H x W image.
 
     Both the prediction and the ground truth keep their values only inside the ray
     mask and are filled with the background color elsewhere. They are quantized to
-    8 bits before the metrics are computed.
+    8 bits before the metrics are computed. With return_images, the composited 8-bit
+    prediction and ground truth (H x W x 3 numpy) are returned as well.
     """
     device = pred_img01.device
     assert pred_img01.shape[0] == 1
@@ -252,7 +278,342 @@ def compute_metrics(
     gt_lp = (gt_img * 2 - 1).clamp(-1, 1)
     lpips = float(lpips_model(pr_lp, gt_lp).view(-1)[0].cpu().item())
 
+    if return_images:
+        return psnr, ssim, lpips, pr_uint8.cpu().numpy(), gt_uint8.cpu().numpy()
     return psnr, ssim, lpips
+
+
+# ---------------------------------------------------------------------------
+# Pose strata (pose change of each frame relative to the anchor; numpy only)
+# ---------------------------------------------------------------------------
+POSE_ANALYSES = (  # (measure key, printed title)
+    ("palm_deg", "Palm-orientation change vs. anchor"),
+    ("art_deg", "Finger-articulation change vs. anchor"),
+)
+
+
+def _flat64(x: Any) -> Optional[np.ndarray]:
+    if x is None:
+        return None
+    if hasattr(x, "detach"):
+        x = x.detach().float().cpu().numpy()
+    return np.asarray(x, dtype=np.float64).reshape(-1)
+
+
+def aa_to_mat(aa: np.ndarray) -> np.ndarray:
+    """[N,3] axis-angle -> [N,3,3] (Rodrigues)."""
+    aa = np.asarray(aa, dtype=np.float64).reshape(-1, 3)
+    theta = np.linalg.norm(aa, axis=1)
+    k = aa / np.maximum(theta, 1e-12)[:, None]
+    K = np.zeros((len(aa), 3, 3))
+    K[:, 0, 1], K[:, 0, 2] = -k[:, 2], k[:, 1]
+    K[:, 1, 0], K[:, 1, 2] = k[:, 2], -k[:, 0]
+    K[:, 2, 0], K[:, 2, 1] = -k[:, 1], k[:, 0]
+    s, c = np.sin(theta)[:, None, None], (1 - np.cos(theta))[:, None, None]
+    R = np.eye(3)[None] + s * K + c * (K @ K)
+    R[theta < 1e-10] = np.eye(3)
+    return R
+
+
+def _is_rotation(R: np.ndarray, tol: float = 1e-3) -> bool:
+    if R.ndim < 2 or R.shape[-2:] != (3, 3):
+        return False
+    orth = np.abs(R @ np.swapaxes(R, -1, -2) - np.eye(3)).max()
+    return orth < tol and np.abs(np.linalg.det(R) - 1.0).max() < tol
+
+
+def mano_rotations(x: Any, n_joints: int, rot_repr: str = "auto") -> Optional[np.ndarray]:
+    """MANO rotation field -> [n_joints,3,3] (first batch/view element).
+    Axis-angle (n_joints*3 values) or matrices (n_joints*9); when both layouts divide the
+    count, rot_repr decides, otherwise orthonormality does."""
+    t = _flat64(x)
+    if t is None or t.size == 0 or n_joints <= 0:
+        return None
+    fits_aa, fits_mat = t.size % (n_joints * 3) == 0, t.size % (n_joints * 9) == 0
+
+    def as_aa():
+        return aa_to_mat(t.reshape(-1, n_joints, 3)[0])
+
+    def as_mat():
+        return t.reshape(-1, n_joints, 3, 3)[0]
+
+    if rot_repr == "aa" and fits_aa:
+        return as_aa()
+    if rot_repr == "matrix" and fits_mat:
+        return as_mat()
+    if fits_aa and not fits_mat:
+        return as_aa()
+    if fits_mat and not fits_aa:
+        return as_mat()
+    if fits_mat and _is_rotation(as_mat()):
+        return as_mat()
+    return as_aa() if fits_aa else None
+
+
+def _c2w_rotation(x: Any) -> Optional[np.ndarray]:
+    """Rotation block of the first camera-to-world matrix (4x4 or 3x4)."""
+    t = _flat64(x)
+    if t is None:
+        return None
+    if t.size % 16 == 0:
+        return t.reshape(-1, 4, 4)[0, :3, :3]
+    if t.size % 12 == 0:
+        return t.reshape(-1, 3, 4)[0, :3, :3]
+    return None
+
+
+def geodesic_deg(R1: np.ndarray, R2: np.ndarray) -> np.ndarray:
+    Rrel = np.swapaxes(R1, -1, -2) @ R2
+    cos = np.clip((np.trace(Rrel, axis1=-2, axis2=-1) - 1.0) * 0.5, -1.0, 1.0)
+    return np.degrees(np.arccos(cos))
+
+
+def pose_raw(inputs: Dict[str, Any], cam_R: Any = None, rot_repr: str = "auto", n_joints: int = 15) -> Dict[str, Any]:
+    """Global rotation, finger rotations and camera rotation of one frame.
+
+    cam_R: world-to-camera rotation of the TRUE camera (the loader's 'cam_R'). When given, the
+    camera rotation comes from it (c2w rotation = cam_R^T) instead of render_c2ws, which may be
+    the principal-point-centering rotated camera of the adapter.
+    """
+    mano = inputs.get("mano_params", {}) or {}
+    t = _flat64(cam_R)
+    R_c2w = t[:9].reshape(3, 3).T if t is not None and t.size >= 9 else _c2w_rotation(inputs.get("render_c2ws"))
+    R_glob = mano_rotations(mano.get("global_orient"), 1, rot_repr)
+    return {
+        "R_glob": None if R_glob is None else R_glob[0],
+        "R_art": mano_rotations(mano.get("hand_pose"), n_joints, rot_repr),
+        "R_c2w": R_c2w,
+    }
+
+
+def _parse_cam_stem(frame_name: Any) -> Tuple[str, str]:
+    """'.../cam400272/image15012(.jpg)' -> ('cam400272', 'image15012'); no cam part -> 'all'."""
+    s = (frame_name.decode("utf-8") if isinstance(frame_name, bytes) else str(frame_name)).strip().replace("\\", "/")
+    for ext in (".jpg", ".jpeg", ".png"):
+        s = s.removesuffix(ext)
+    parts = [p for p in s.split("/") if p]
+    cam = next((p for p in parts if p.lower().startswith("cam")), "all")
+    stem = parts[-1] if parts else "unknown"
+    return cam, stem
+
+
+def detect_global_frame(records: List[Dict[str, Any]], tol_deg: float = 1.0) -> Tuple[str, str]:
+    """Is global_orient already camera-relative, or world-frame with per-camera extrinsics?
+    Compare the same time frame seen by different cameras."""
+    by_stem: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for r in records:
+        if r["_pose"]["R_glob"] is not None:
+            by_stem[r["stem"]].append(r)
+    glob_d, cam_d = [], []
+    for rs in by_stem.values():
+        base = rs[0]
+        for r in rs[1:]:
+            if r["cam"] == base["cam"]:
+                continue
+            glob_d.append(float(geodesic_deg(base["_pose"]["R_glob"], r["_pose"]["R_glob"])))
+            if base["_pose"]["R_c2w"] is not None and r["_pose"]["R_c2w"] is not None:
+                cam_d.append(float(geodesic_deg(base["_pose"]["R_c2w"], r["_pose"]["R_c2w"])))
+    if not glob_d:
+        # no frame is seen by two cameras: identity cameras mean global_orient is already
+        # camera-relative, non-identity cameras mean it must be composed
+        rots = [r["_pose"]["R_c2w"] for r in records if r["_pose"]["R_c2w"] is not None]
+        off = float(np.max([geodesic_deg(np.eye(3), R) for R in rots])) if rots else 0.0
+        if off <= tol_deg:
+            return "camera", "one camera per frame, identity cameras: global rotations already camera-relative"
+        return "world", (f"one camera per frame, non-identity cameras (up to {off:.1f} deg): "
+                         f"composed with the world-to-camera rotation")
+    g = float(np.median(glob_d))
+    c = float(np.median(cam_d)) if cam_d else 0.0
+    if g > tol_deg:
+        msg = f"global_orient differs across cameras of the same frame (median {g:.1f} deg): already camera-relative"
+        if c > tol_deg:
+            msg += f"  [warning: cameras also differ (median {c:.1f} deg); check the loader's convention]"
+        return "camera", msg
+    if c > tol_deg:
+        return "world", (f"global_orient identical across cameras (median {g:.2f} deg) while the cameras differ "
+                         f"(median {c:.1f} deg): composed with the world-to-camera rotation")
+    return "camera", f"global_orient and cameras both identical across views (median {g:.2f} / {c:.2f} deg)"
+
+
+def compute_pose_measures(rec_pose: Dict[str, Any], src_pose: Dict[str, Any], frame: str) -> Dict[str, float]:
+    out = {"palm_deg": float("nan"), "view_hand_deg": float("nan"), "art_deg": float("nan")}
+
+    def cam_rel(p):
+        if p["R_glob"] is None:
+            return None
+        if frame == "world":
+            return None if p["R_c2w"] is None else p["R_c2w"].T @ p["R_glob"]
+        return p["R_glob"]
+
+    Rs, Rt = cam_rel(src_pose), cam_rel(rec_pose)
+    if Rs is not None and Rt is not None:
+        out["palm_deg"] = float(geodesic_deg(Rs, Rt))
+        # camera viewing direction expressed in the hand frame (roll about the optical axis ignored)
+        vs, vt = Rs.T @ np.array([0.0, 0.0, 1.0]), Rt.T @ np.array([0.0, 0.0, 1.0])
+        out["view_hand_deg"] = float(np.degrees(np.arccos(np.clip(vs @ vt, -1.0, 1.0))))
+    if rec_pose["R_art"] is not None and src_pose["R_art"] is not None:
+        out["art_deg"] = float(geodesic_deg(src_pose["R_art"], rec_pose["R_art"]).mean())
+    return out
+
+
+def equal_count_bins(values: np.ndarray, n_bins: int = 3) -> List[np.ndarray]:
+    idx = np.where(np.isfinite(values))[0]
+    order = idx[np.argsort(values[idx], kind="mergesort")]
+    return [np.asarray(s, dtype=int) for s in np.array_split(order, n_bins)]
+
+
+def bin_names(n_bins: int) -> List[str]:
+    return ["Easy", "Medium", "Extreme"] if n_bins == 3 else [f"Bin {i + 1}" for i in range(n_bins)]
+
+
+def print_pose_strata(rows: List[Tuple[float, float, float]], pose_records: List[Dict[str, Any]],
+                      src_pose: Dict[str, Any], pcfg: Dict[str, Any], verbose: bool = False) -> None:
+    """PSNR / SSIM / LPIPS of the frames in each equal-count bin of the two pose changes,
+    in the layout of the supplementary table (Tercile, Range in degrees, metrics; All last)."""
+    n_bins = int(pcfg.get("bins", 3))
+    frame = str(pcfg.get("global_frame", "auto"))
+    info = f"forced '{frame}'"
+    if frame == "auto":
+        frame, info = detect_global_frame(pose_records)
+    measures = [compute_pose_measures(r["_pose"], src_pose, frame) for r in pose_records]
+    metrics = np.array(rows, dtype=np.float64)  # [N, 3] = PSNR, SSIM, LPIPS
+
+    def fmt(m: np.ndarray) -> str:
+        psnr, ssim, lpips = m
+        return (f"{paper_round(psnr, PAPER_DIGITS['PSNR']):>7s} {paper_round(ssim, PAPER_DIGITS['SSIM']):>7s} "
+                f"{paper_round(lpips, PAPER_DIGITS['LPIPS']):>7s}")
+
+    print("-------- pose strata --------")
+    if verbose:
+        print(f"global rotations: {info}")
+    print(f"{'Tercile' if n_bins == 3 else 'Bin':<9s} {'Range':>9s} {'PSNR':>7s} {'SSIM':>7s} {'LPIPS':>7s}"
+          + ("    n  view (median)" if verbose else ""))
+    for key, title in POSE_ANALYSES:
+        vals = np.array([m[key] for m in measures], dtype=np.float64)
+        views = np.array([m["view_hand_deg"] for m in measures], dtype=np.float64)
+        print(title)
+        for name, sel in zip(bin_names(n_bins), equal_count_bins(vals, n_bins)):
+            if len(sel) == 0:
+                continue
+            rng = f"{float(vals[sel].min()):.0f}-{float(vals[sel].max()):.0f}"
+            extra = ""
+            if verbose:  # frame count; for the palm bins, the median viewing-direction change in the hand frame
+                extra = f" {len(sel):4d}" + (f"  {float(np.nanmedian(views[sel])):.0f} deg" if key == "palm_deg" else "")
+            print(f"{name:<9s} {rng:>9s} {fmt(metrics[sel].mean(axis=0))}" + extra)
+        n_missing = int((~np.isfinite(vals)).sum())
+        if n_missing:
+            print(f"[warn] {n_missing} frame(s) without a pose measure are left out of the bins")
+    print(f"{'All':<9s} {'':>9s} {fmt(metrics.mean(axis=0))}" + (f" {len(metrics):4d}" if verbose else ""))
+
+
+# ---------------------------------------------------------------------------
+# Temporal stability (consecutive frames per camera; numpy only)
+# ---------------------------------------------------------------------------
+def _stem_key(s: str):
+    return (0, int(s), s) if s.isdigit() else (1, 0, s)
+
+
+def _frame_change(x: np.ndarray, y: np.ndarray, m: np.ndarray) -> float:
+    """mean |y - x| over mask m, channel-averaged, in [0,1] intensity."""
+    return float(np.abs(y.astype(np.float32) - x.astype(np.float32)).mean(axis=2)[m].mean() / 255.0)
+
+
+def temporal_pairs(tstore: Dict[str, Dict[str, Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Consecutive pairs per camera, in frame order (sorted here, whatever the loader order)."""
+    rows = []
+    for cam in sorted(tstore):
+        stems = sorted(tstore[cam], key=_stem_key)
+        for a, b in zip(stems[:-1], stems[1:]):
+            A, B = tstore[cam][a], tstore[cam][b]
+            m = A["mask"] | B["mask"]
+            if not m.any():
+                continue
+            rows.append({"cam": cam,
+                         "gap": (int(b) - int(a)) if a.isdigit() and b.isdigit() else None,
+                         "d_gt": _frame_change(A["gt"], B["gt"], m),
+                         "d_pred": _frame_change(A["pred"], B["pred"], m)})
+    return rows
+
+
+FLICKER_STRENGTHS = (0.0, 0.01, 0.02, 0.04)
+
+
+def flicker_check(tstore: Dict[str, Dict[str, Dict[str, Any]]], strengths=FLICKER_STRENGTHS,
+                  seed: int = 0) -> List[Tuple[float, float]]:
+    """Calibration: add a per-frame brightness offset drawn uniformly from [-s, s] (inside the
+    ray mask, re-quantized to 8 bits) to our renders and recompute the excess / GT change
+    pooled over all pairs. It must increase with s. Returns [(s, excess/GT %)]."""
+    out = []
+    for sgm in strengths:
+        rng = np.random.default_rng(seed)
+        jit = {}
+        for cam in sorted(tstore):
+            for st in sorted(tstore[cam], key=_stem_key):
+                fr = tstore[cam][st]
+                x = fr["pred"].astype(np.float32) / 255.0
+                if sgm > 0:
+                    x = x + fr["mask"][..., None] * rng.uniform(-sgm, sgm)
+                jit[(cam, st)] = (np.clip(x, 0, 1) * 255.0 + 0.5).astype(np.uint8)
+        ex, gt = [], []
+        for cam in sorted(tstore):
+            stems = sorted(tstore[cam], key=_stem_key)
+            for a, b in zip(stems[:-1], stems[1:]):
+                m = tstore[cam][a]["mask"] | tstore[cam][b]["mask"]
+                if not m.any():
+                    continue
+                dg = _frame_change(tstore[cam][a]["gt"], tstore[cam][b]["gt"], m)
+                ex.append(_frame_change(jit[(cam, a)], jit[(cam, b)], m) - dg)
+                gt.append(dg)
+        out.append((float(sgm), 100.0 * float(np.mean(ex)) / float(np.mean(gt)) if gt else float("nan")))
+    return out
+
+
+def print_temporal(rows: List[Dict[str, Any]], source_cam: str,
+                   flicker: Optional[List[Tuple[float, float]]] = None) -> None:
+    """Per camera: pairs, mean GT change, mean prediction change, excess / GT change (%);
+    then the mean of the per-camera magnitudes."""
+    print("-------- temporal stability (consecutive frames per camera) --------")
+    if not rows:
+        print("no consecutive frame pairs")
+        return
+    gaps = sorted({r["gap"] for r in rows if r["gap"] is not None})
+    if gaps and gaps != [1]:
+        print(f"[warn] consecutive evaluation frames are not all one frame apart (steps {gaps})")
+
+    print(f"{'Camera':<20s} {'pairs':>5s} {'GT change':>10s} {'Pred':>8s} {'Excess/GT':>10s}")
+    per_cam = []
+    for cam in sorted({r["cam"] for r in rows}):
+        sel = [r for r in rows if r["cam"] == cam]
+        dg = np.array([r["d_gt"] for r in sel], dtype=np.float64)
+        dp = np.array([r["d_pred"] for r in sel], dtype=np.float64)
+        gt, pred, excess = float(dg.mean()), float(dp.mean()), float((dp - dg).mean())
+        ratio = 100.0 * excess / gt if gt > 0 else float("nan")
+        per_cam.append({"n": len(sel), "gt": gt, "pred": pred, "ratio": ratio})
+        label = f"{cam} (source view)" if cam == source_cam else cam
+        print(f"{label:<20s} {len(sel):5d} {gt:10.4f} {pred:8.4f} {ratio:+9.1f}%")
+
+    n = sum(c["n"] for c in per_cam)
+    gt = float(np.mean([c["gt"] for c in per_cam]))
+    pred = float(np.mean([c["pred"] for c in per_cam]))
+    ratio = float(np.mean([abs(c["ratio"]) for c in per_cam]))
+    print(f"{'Mean of |.|':<20s} {n:5d} {gt:10.4f} {pred:8.4f} {ratio:9.1f}%")
+
+    dg = np.array([r["d_gt"] for r in rows], dtype=np.float64)
+    dp = np.array([r["d_pred"] for r in rows], dtype=np.float64)
+    print(f"{'pooled (signed)':<20s} {len(rows):5d} {dg.mean():10.4f} {dp.mean():8.4f} "
+          f"{100.0 * (dp - dg).mean() / dg.mean():+9.1f}%")
+
+    if flicker:
+        mono = all(b[1] > a[1] for a, b in zip(flicker[:-1], flicker[1:]))
+        print("flicker calibration (pooled excess/GT with a per-frame brightness offset of +-s on our renders):")
+        print("  " + ", ".join(f"s={sg:g}: {r:+.1f}%" for sg, r in flicker)
+              + ("  (increases monotonically)" if mono else "  [warn] NOT monotonic, check the pairing"))
+
+
+def _camera_of(frame_name: Any) -> str:
+    """'0191/cam3/00000000.jpg' or 'cam6_00000075' -> 'cam3' / 'cam6'."""
+    m = re.search(r"cam\d+", str(frame_name))
+    return m.group(0) if m else "all"
 
 
 # ---------------------------------------------------------------------------
@@ -269,14 +630,42 @@ def load_model(model_cfg: Dict[str, Any], ckpt_dir: str, device: torch.device, q
     return model
 
 
+def canonical_only_model(full_model: ModelHAM, model_cfg: Dict[str, Any], ckpt_dir: str, device: torch.device,
+                         train_stage: str, quiet: bool = True) -> ModelHAM:
+    """Same checkpoint with the appearance head disabled: renders the Stage-1 base colors.
+
+    Built without the head and filled from the already loaded full model (every tensor except
+    the head's), so it works for any checkpoint format the full model loads from.
+    """
+    cfg = dict(model_cfg)
+    cfg["use_appearance_head"] = False
+    cfg["appearance_head_cfg"] = None
+    with _quiet(quiet):
+        model = ModelHAM(**resolve_encoder_weights(cfg, Path(ckpt_dir) / "model.safetensors"))
+    head = "renderer.appearance_head."
+    state = {k: v for k, v in full_model.state_dict().items() if not k.startswith(head)}
+    model.load_state_dict(state, strict=True)
+    model = model.to(device)
+    model.set_train_stage(train_stage)
+    model.eval()
+    return model
+
+
 @torch.no_grad()
-def build_canonical_avatar(model: ModelHAM, anchor_inputs: Dict[str, Any], device: torch.device):
-    """Single forward pass: anchor image -> canonical Gaussian avatar."""
-    image = anchor_inputs["image"]
+def build_canonical_avatars(models: List[ModelHAM], source_inputs: Dict[str, Any], device: torch.device):
+    """Source image -> canonical Gaussian avatar, for each model in `models`.
+
+    The image encoding and the latent points come from the first model and are shared: the
+    models given together differ only in the appearance head (the canonical-only model is a
+    copy of the full model without it), so the encoder and transformer outputs are identical
+    and need to be computed once. Returns [(gs_models, query_points)] in the order of `models`.
+    """
+    model = models[0]
+    image = source_inputs["image"]
     if image.ndim == 5:  # [B, V, 3, H, W] -> first view
         image = image[:, 0]
 
-    mano = anchor_inputs["mano_params"]
+    mano = source_inputs["mano_params"]
     query_points, mano_params = model.renderer.get_query_points_from_params(
         mano_params=mano,
         device=device,
@@ -292,28 +681,37 @@ def build_canonical_avatar(model: ModelHAM, anchor_inputs: Dict[str, Any], devic
         raise ValueError(f"image_feats tokens do not form a square grid: {image_feats.shape[1]}")
     image_feats_bchw = rearrange(image_feats, "b (h w) c -> b c h w", h=side)
 
-    data = anchor_inputs.get("data") or {}
-    source_intrs = anchor_inputs["source_intrs"]
-    source_c2ws = anchor_inputs["source_c2ws"]
+    data = source_inputs.get("data") or {}
+    source_intrs = source_inputs["source_intrs"]
+    source_c2ws = source_inputs["source_c2ws"]
+    additional_features = {
+        "image_feats": image_feats,
+        "image": image,
+        "image_feats_bchw": image_feats_bchw,
+        "source_image": image,
+        "source_mask": data.get("source_mask"),
+        "source_intrinsic": source_intrs[:, 0] if source_intrs.ndim == 4 else source_intrs,
+        "source_c2w": source_c2ws[:, 0] if source_c2ws.ndim == 4 else source_c2ws,
+        "source_depth_map": None,
+        "source_mano_data": {k: mano[k] for k in ("betas", "global_orient", "hand_pose", "translation")},
+    }
 
-    gs_models, query_points, *_ = model.renderer.build_gs(
-        gs_hidden_features=latent_points,
-        query_points=query_points,
-        mano_params=mano_params,
-        additional_features={
-            "image_feats": image_feats,
-            "image": image,
-            "image_feats_bchw": image_feats_bchw,
-            "source_image": image,
-            "source_mask": data.get("source_mask"),
-            "source_intrinsic": source_intrs[:, 0] if source_intrs.ndim == 4 else source_intrs,
-            "source_c2w": source_c2ws[:, 0] if source_c2ws.ndim == 4 else source_c2ws,
-            "source_depth_map": None,
-            "source_mano_data": {k: mano[k] for k in ("betas", "global_orient", "hand_pose", "translation")},
-        },
-        train_stage=model.current_train_stage,
-    )
-    return gs_models, query_points
+    avatars = []
+    for m in models:
+        gs_models, qp, *_ = m.renderer.build_gs(
+            gs_hidden_features=latent_points,
+            query_points=query_points,
+            mano_params=mano_params,
+            additional_features=additional_features,
+            train_stage=m.current_train_stage,
+        )
+        avatars.append((gs_models, qp))
+    return avatars
+
+
+def build_canonical_avatar(model: ModelHAM, source_inputs: Dict[str, Any], device: torch.device):
+    """Single forward pass: source image -> canonical Gaussian avatar."""
+    return build_canonical_avatars([model], source_inputs, device)[0]
 
 
 @torch.no_grad()
@@ -384,13 +782,21 @@ def run_eval(cfg: Dict[str, Any]) -> None:
     anchor_inputs = handavatar_sample_to_infer_inputs(anchor, device, adapter_cfg)
     gs_models, query_points = build_canonical_avatar(model, anchor_inputs, device)
 
-    from external.handavatar.core.data.create_dataset2 import create_dataloader  # needs ha_configs.cfg
+    from external.handavatar.core.data.create_dataset import create_dataloader  # needs ha_configs.cfg
 
     with _quiet(quiet):
         loader = create_dataloader(data_type="progress")
 
+    pcfg = cfg.get("pose_strata") or {}
+    with_pose = bool(pcfg.get("enabled", False))
+    src_pose = pose_raw(anchor_inputs, cam_R=anchor.get("cam_R")) if with_pose else None
+
+    with_temporal = bool((cfg.get("temporal") or {}).get("enabled", False))
+    tstore: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(dict)  # cam -> frame -> 8-bit images + mask
+
     max_batches = int(cfg["max_batches"])
     rows = []  # (psnr, ssim, lpips) per frame
+    pose_records = []  # pose of each frame, for the pose strata
     for frame_index, batch in enumerate(tqdm(loader, desc="eval")):
         if max_batches > 0 and frame_index >= max_batches:
             break
@@ -402,14 +808,80 @@ def run_eval(cfg: Dict[str, Any]) -> None:
         inputs = handavatar_sample_to_infer_inputs(batch, device, adapter_cfg)
         pred = to_crop(render_frame(model, gs_models, query_points, inputs, H, W), inputs)
 
-        rows.append(compute_metrics(pred, target_rgbs, ray_mask, H, W, bg01, lpips_model))
+        psnr, ssim, lpips, pred_u8, gt_u8 = compute_metrics(pred, target_rgbs, ray_mask, H, W, bg01, lpips_model,
+                                                            return_images=True)
+        rows.append((psnr, ssim, lpips))
 
-    # Mean over frames, rounded as in the paper tables
-    print(f"\n======== HanCo evaluation ========\nsamples: {len(rows)}")
+        frame_name = batch.get("frame_name", f"{frame_index:06d}")
+        cam, stem = _parse_cam_stem(frame_name)
+        if with_pose:
+            pose_records.append({"cam": cam, "stem": stem, "_pose": pose_raw(inputs, cam_R=batch.get("cam_R"))})
+        if with_temporal:
+            if stem in tstore[cam]:
+                raise RuntimeError(f"[temporal] frame {cam}/{stem} appears twice in the evaluation set")
+            tstore[cam][stem] = {"pred": pred_u8, "gt": gt_u8, "mask": ray_mask.view(H, W).cpu().numpy()}
+
+    # Mean over frames, rounded as in the paper tables: main, pose strata, temporal
+    print(f"\n======== HanCo evaluation ({len(rows)} frames) ========")
+    print("-------- main --------")
     for col, name in enumerate(("PSNR", "SSIM", "LPIPS")):
         mean = float(np.array([r[col] for r in rows], dtype=np.float64).mean())
         line = f"{name:<5}: {paper_round(mean, PAPER_DIGITS[name])}"
         print(line + (f"  (unrounded {mean:.6f})" if cfg.get("verbose") else ""))
+
+    if with_pose:
+        print_pose_strata(rows, pose_records, src_pose, pcfg, verbose=bool(cfg.get("verbose")))
+
+    if with_temporal:
+        tcfg = cfg.get("temporal") or {}
+        flicker = flicker_check(tstore) if bool(tcfg.get("flicker_check", True)) else None
+        print_temporal(temporal_pairs(tstore), source_cam=_camera_of(anchor.get("frame_name", cfg["anchor_image"])),
+                       flicker=flicker)
+        del tstore
+
+    # Self-reconstruction: a second pass over the test frames, after the results above are printed
+    scfg = cfg.get("self_recon") or {}
+    if bool(scfg.get("enabled", False)):
+        del gs_models, query_points
+        sys.stdout.flush()  # show the results above before the second pass starts
+        run_self_recon(cfg, scfg, model, lpips_model, bg01, adapter_cfg, device, quiet)
+
+
+@torch.no_grad()
+def run_self_recon(cfg: Dict[str, Any], scfg: Dict[str, Any], model: ModelHAM, lpips_model, bg01: torch.Tensor,
+                   adapter_cfg: HA2HAMCfg, device: torch.device, quiet: bool) -> None:
+    """Every test frame is its own source: build the avatar from the frame, render it back into
+    the same frame. 'w/o transfer' = same checkpoint without the appearance head, 'Ours' = full
+    model; one image encoding per frame is shared by the two."""
+    from external.handavatar.core.data.create_dataset import create_dataloader  # needs ha_configs.cfg
+
+    canon_model = canonical_only_model(model, cfg["model"], cfg["ckpt_dir"], device,
+                                       train_stage=str(scfg.get("canonical_train_stage", "stage2")), quiet=quiet)
+    with _quiet(quiet):
+        loader = create_dataloader(data_type="progress")
+
+    max_batches = int(cfg["max_batches"])
+    self_rows = {"w/o transfer": [], "Ours": []}  # (psnr, ssim, lpips) per frame
+    for frame_index, batch in enumerate(tqdm(loader, desc="self-recon")):
+        if max_batches > 0 and frame_index >= max_batches:
+            break
+        batch = _unbatch(batch)
+        H, W = int(batch["img_height"]), int(batch["img_width"])
+        ray_mask, target_rgbs = _eval_targets(batch, device)
+
+        inputs = handavatar_sample_to_infer_inputs(batch, device, adapter_cfg)
+        avatars = build_canonical_avatars([model, canon_model], inputs, device)
+        for (setting, m), (gs_self, qp_self) in zip((("Ours", model), ("w/o transfer", canon_model)), avatars):
+            pred = to_crop(render_frame(m, gs_self, qp_self, inputs, H, W), inputs)
+            self_rows[setting].append(compute_metrics(pred, target_rgbs, ray_mask, H, W, bg01, lpips_model))
+        del avatars
+
+    print("-------- self-reconstruction (each frame its own source) --------")
+    print(f"{'':<13s} {'PSNR':>7s} {'SSIM':>7s} {'LPIPS':>7s}")
+    for setting, r in self_rows.items():
+        psnr, ssim, lpips = np.array(r, dtype=np.float64).mean(axis=0)
+        print(f"{setting + ':':<13s} {paper_round(psnr, PAPER_DIGITS['PSNR']):>7s} "
+              f"{paper_round(ssim, PAPER_DIGITS['SSIM']):>7s} {paper_round(lpips, PAPER_DIGITS['LPIPS']):>7s}")
 
 
 def parse_args() -> Dict[str, Any]:
@@ -418,6 +890,10 @@ def parse_args() -> Dict[str, Any]:
     p.add_argument("--ckpt_dir", help="override ckpt_dir in the config")
     p.add_argument("--max_batches", type=int, help="override max_batches in the config (-1: all frames)")
     p.add_argument("--pp_mode", choices=["rotate", "none"], help="override pp_mode in the config")
+    p.add_argument("--no_pose_strata", action="store_true", help="skip the pose-stratified metrics")
+    p.add_argument("--no_temporal", action="store_true", help="skip the temporal stability metrics")
+    p.add_argument("--self_recon", action="store_true", help="also run the self-reconstruction metrics (slow)")
+    p.add_argument("--no_self_recon", action="store_true", help="skip the self-reconstruction metrics")
     p.add_argument("--verbose", action="store_true", help="show logs and warnings from model, LPIPS and data setup")
     args = p.parse_args(_CLI_ARGV)
 
@@ -426,6 +902,14 @@ def parse_args() -> Dict[str, Any]:
     for key in ("ckpt_dir", "max_batches", "pp_mode"):
         if getattr(args, key) is not None:
             cfg[key] = getattr(args, key)
+    if args.no_pose_strata:
+        cfg.setdefault("pose_strata", {})["enabled"] = False
+    if args.no_temporal:
+        cfg.setdefault("temporal", {})["enabled"] = False
+    if args.self_recon:
+        cfg.setdefault("self_recon", {})["enabled"] = True
+    if args.no_self_recon:
+        cfg.setdefault("self_recon", {})["enabled"] = False
     cfg["verbose"] = args.verbose
     return cfg
 

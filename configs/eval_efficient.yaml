@@ -22,9 +22,9 @@ timing:
   nvml_poll_ms: 50        # NVML sampling interval for Mem.; 0 disables it
 
 # ---- anchor image (the single input image the avatar is built from; HanCo 0191, cam6, frame 75) ----
-anchor_image: ./data/HanCo/0191/anchor/rgb/cam6_00000075.jpg
-anchor_mask: ./data/HanCo/0191/anchor/mask/cam6_00000075.png
-anchor_pkl: ./data/HanCo/0191/anchor/anno/0191_cam6_00000075_scale1.pkl
+anchor_image: ./data/eval/HanCo/0191/anchor/rgb/cam6_00000075.jpg
+anchor_mask:  ./data/eval/HanCo/0191/anchor/mask/cam6_00000075.png
+anchor_pkl:  ./data/eval/HanCo/0191/anchor/anno/0191_cam6_00000075_scale1.pkl
 
 # ---- model (must match the checkpoint) ----
 model:

@@ -16,10 +16,20 @@ boundary:
   alpha_band_radius: 5      # px: outer band (leakage) / inner erosion (coverage)
   tau_out: 0.1              # alpha above this in the outer band counts as leakage
 
+# ---- pose strata: the same metrics in equal-count bins of the pose change vs. the anchor ----
+pose_strata:
+  enabled: true
+  bins: 3                   # Easy / Medium / Extreme
+
+# ---- self-reconstruction: every test frame is its own source ----
+self_recon:
+  enabled: false            # slow: builds avatars from every test frame (--self_recon to turn on)
+  canonical_train_stage: stage2   # train stage of the head-disabled model; keep equal to eval_efficient.yaml
+
 # ---- anchor image (the single input image the avatar is built from) ----
-anchor_image: ./data/InterHand/5/InterHand2.6M_5fps_batch1/anchor/img/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012.jpg
-anchor_mask: ./data/InterHand/5/InterHand2.6M_5fps_batch1/anchor/mask/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012.jpg
-anchor_pkl: ./data/InterHand/5/InterHand2.6M_5fps_batch1/anchor/anno/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012_scale1.pkl
+anchor_image: ./data/eval/InterHand/5/InterHand2.6M_5fps_batch1/anchor/img/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012.jpg
+anchor_mask: ./data/eval/InterHand/5/InterHand2.6M_5fps_batch1/anchor/mask/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012.jpg
+anchor_pkl: ./data/eval/InterHand/5/InterHand2.6M_5fps_batch1/anchor/anno/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012_scale1.pkl
 
 # ---- model (must match the checkpoint) ----
 model:

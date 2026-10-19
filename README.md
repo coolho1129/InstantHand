@@ -6,14 +6,14 @@
 [Muhammad Salman Ali](https://salmanali96.github.io/),
 [Kyeonghwan Gwak](https://khgwak.github.io/about/),
 [Muhammad Shaheryar](https://scholar.google.com/citations?user=v9FnXzwAAAAJ&hl=en),
-Incheol Park,
+[Incheol Park](https://github.com/inchulnim123),
 [Jeongwan On](https://on-jungwoan.github.io/),
 [Seungryul Baek](https://sites.google.com/site/bsrvision00/)
 
 [UNIST Vision & Learning Lab](https://vision.unist.ac.kr/), UNIST
 
 <!-- Replace "(coming soon)" with a link to the first public version of the paper (OpenReview, arXiv, or proceedings) -->
-**[Project Page](https://coolho1129.github.io/InstantHand-page/) | Paper (coming soon) | [Checkpoints & Data](https://drive.google.com/drive/folders/10iqqssndhqTGFWGWVBmpnCxzchryCdUE)**
+**[Project Page](https://coolho1129.github.io/InstantHand-page/) | Paper (coming soon) | [Checkpoints](https://huggingface.co/coolho1129/InstantHand) | [Evaluation Data](https://github.com/coolho1129/InstantHand/releases/tag/v1.0)**
 
 <p align="center">
   <img src="assets/teaser.webp" width="100%" alt="A single input hand image, one forward pass, and the reconstructed canonical 3D Gaussian hand avatar rotating.">
@@ -98,22 +98,26 @@ InstantHand/
 | (4) | `data/eval/` | Official InterHand2.6M and HanCo images plus our archives, see [Data preparation](#data-preparation). |
 | (5) | `data/train/` | The training datasets, converted to the layout of [Training data](#training-data). Not redistributed. |
 
-**Checkpoints.** Both are in our [Google Drive folder](https://drive.google.com/drive/folders/10iqqssndhqTGFWGWVBmpnCxzchryCdUE) and give identical results; the full one
+**Checkpoints.** Both are on [Hugging Face](https://huggingface.co/coolho1129/InstantHand) and give identical results; the full one
 includes the frozen DINOv3 ViT-L/16 backbone, so you do not need (2). Save the one you use as
 `exps/neurips2026/stage2_best/model.safetensors`:
 
 ```bash
+pip install -U huggingface_hub
+hf download coolho1129/InstantHand checkpoints/instanthand_full.safetensors --local-dir .
 mkdir -p exps/neurips2026/stage2_best
-mv ~/Downloads/instanthand_full.safetensors exps/neurips2026/stage2_best/model.safetensors
+mv checkpoints/instanthand_full.safetensors exps/neurips2026/stage2_best/model.safetensors
 ```
+
+For the light checkpoint, replace `instanthand_full` with `instanthand_light` in both commands.
 
 | Checkpoint | Size | DINOv3 file (2) | Download |
 |---|---|---|---|
-| full | 1.4 GB | not needed | [`checkpoints/instanthand_full.safetensors`](https://drive.google.com/drive/folders/10iqqssndhqTGFWGWVBmpnCxzchryCdUE) |
-| light | 0.2 GB | needed | [`checkpoints/instanthand_light.safetensors`](https://drive.google.com/drive/folders/10iqqssndhqTGFWGWVBmpnCxzchryCdUE) |
+| full | 1.4 GB | not needed | [`checkpoints/instanthand_full.safetensors`](https://huggingface.co/coolho1129/InstantHand/blob/main/checkpoints/instanthand_full.safetensors) |
+| light | 0.2 GB | needed | [`checkpoints/instanthand_light.safetensors`](https://huggingface.co/coolho1129/InstantHand/blob/main/checkpoints/instanthand_light.safetensors) |
 
-The DINOv3 backbone in the full checkpoint is distributed under the DINOv3 License (a copy is
-included with the download). The MANO model is not redistributed here (MANO license);
+The DINOv3 backbone in the full checkpoint is distributed under the DINOv3 License (a copy,
+[`DINOv3_LICENSE.md`](https://huggingface.co/coolho1129/InstantHand/blob/main/DINOv3_LICENSE.md), is included in the Hugging Face repository). The MANO model is not redistributed here (MANO license);
 `mano_mean_params.npz` is included as released by [WiLoR](https://github.com/rolpotamias/WiLoR).
 
 #### DINOv3 weights
@@ -247,9 +251,13 @@ repository root (`data/eval/HanCo/0191/...`), so the images must be at exactly t
    [official site](https://mks0601.github.io/InterHand2.6M/) and place
    `images/test/Capture0/ROM03_RT_No_Occlusion/` under
    `data/eval/InterHand/5/InterHand2.6M_5fps_batch1/` (a symlink is fine).
-2. Download `eval_data/InstantHand_eval_InterHand2.6M.zip` (our hand masks and annotations, and the
-   source frame) from our [Google Drive folder](https://drive.google.com/drive/folders/10iqqssndhqTGFWGWVBmpnCxzchryCdUE) and unzip it in the repository root
-   (it extracts to `data/eval/InterHand/...`).
+2. Download `InstantHand_eval_InterHand2.6M.zip` (our hand masks and annotations, and the source
+   frame) from the [v1.0 release](https://github.com/coolho1129/InstantHand/releases/tag/v1.0) and
+   unzip it in the repository root (it extracts to `data/eval/InterHand/...`):
+   ```bash
+   wget https://github.com/coolho1129/InstantHand/releases/download/v1.0/InstantHand_eval_InterHand2.6M.zip
+   unzip InstantHand_eval_InterHand2.6M.zip
+   ```
 
 **HanCo.**
 1. Download the RGB images and hand masks (`HanCo_rgb.zip`, `HanCo_mask_hand.zip`) from the
@@ -267,9 +275,13 @@ repository root (`data/eval/HanCo/0191/...`), so the images must be at exactly t
    cp $D/rgb/cam6/00000075.jpg $D/anchor/rgb/cam6_00000075.jpg
    python -c "from PIL import Image; Image.open('$H/mask_hand/0191/cam6/00000075.jpg').convert('L').save('$D/anchor/mask/cam6_00000075.png')"
    ```
-2. Download `eval_data/InstantHand_eval_HanCo.zip` (our annotations for sequence 0191) from our
-   [Google Drive folder](https://drive.google.com/drive/folders/10iqqssndhqTGFWGWVBmpnCxzchryCdUE) and unzip it in the repository root
-   (it extracts to `data/eval/HanCo/0191/...`).
+2. Download `InstantHand_eval_HanCo.zip` (our annotations for sequence 0191) from the
+   [v1.0 release](https://github.com/coolho1129/InstantHand/releases/tag/v1.0) and unzip it in the
+   repository root (it extracts to `data/eval/HanCo/0191/...`):
+   ```bash
+   wget https://github.com/coolho1129/InstantHand/releases/download/v1.0/InstantHand_eval_HanCo.zip
+   unzip InstantHand_eval_HanCo.zip
+   ```
 
 HanCo is provided for research purposes only; if you use it, please cite FreiHAND
 (Zimmermann et al., ICCV 2019) and HanCo (Zimmermann et al., 2021).

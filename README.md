@@ -8,9 +8,10 @@
 [Muhammad Shaheryar](https://scholar.google.com/citations?user=v9FnXzwAAAAJ&hl=en),
 [Incheol Park](https://github.com/inchulnim123),
 [Jeongwan On](https://on-jungwoan.github.io/),
-[Seungryul Baek](https://sites.google.com/site/bsrvision00/)
+[Seungryul Baek](https://sites.google.com/site/bsrvision00/)<sup>*</sup>
 
 [UNIST Vision & Learning Lab](https://vision.unist.ac.kr/), UNIST
+&nbsp;&nbsp;<sup>*</sup> Corresponding author
 
 <!-- Replace "(coming soon)" with a link to the first public version of the paper (OpenReview, arXiv, or proceedings) -->
 **[Project Page](https://coolho1129.github.io/InstantHand-page/) | Paper (coming soon) | [Checkpoints](https://huggingface.co/coolho1129/InstantHand) | [Evaluation Data](https://github.com/coolho1129/InstantHand/releases/tag/v1.0)**
@@ -21,432 +22,41 @@
 
 From a single hand image, InstantHand builds an animatable 3D Gaussian hand avatar in 2.84 s, with no per-subject optimization.
 
-## Contents
-
-- [Installation](#installation)
-- [Demo](#demo)
-- [Evaluation](#evaluation)
-- [Training](#training)
-- [Optional inference-time settings](#optional-inference-time-settings)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
-- [Citation](#citation)
-
-## Installation
-
-Tested on Ubuntu with Python 3.10, PyTorch 2.3.0 and CUDA 11.8 (RTX 3090, RTX A6000, RTX 6000 Ada, A100).
+## Quick start
 
 ```bash
 git clone --recursive https://github.com/coolho1129/InstantHand.git
 cd InstantHand
-# if you cloned without --recursive:
-git submodule update --init --recursive
-
-conda create -n instanthand python=3.10 -y
-conda activate instanthand
-pip install torch==2.3.0 torchvision==0.18.0 --index-url https://download.pytorch.org/whl/cu118
-
-# CUDA extensions; set the compute capability of your GPU
-# (8.6: RTX 3090 / A6000, 8.0: A100, 8.9: RTX 4090 / RTX 6000 Ada; +PTX also runs on newer GPUs)
-export TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
-pip install --no-build-isolation ./diff-gaussian-rasterization
-pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@33824be3cbc87a7dd1db0f6a9a9de9ac81b2d0ba"
-
-pip install --no-build-isolation chumpy==0.70
-pip install -r requirements.txt
 ```
 
-`--no-build-isolation` lets the CUDA extensions build against the installed PyTorch. The
-nvcc version on your system should match the CUDA version of PyTorch (11.8 above).
-
-`diff-gaussian-rasterization/` is a modified version of the Inria 3D Gaussian Splatting
-rasterizer that additionally returns the rendering contribution of every Gaussian, which
-Reliability-gated Appearance Transfer uses. The original rasterizer cannot be used in its place.
-
-**Run every command from the repository root.** Config files, data paths and the paths stored in
-the evaluation annotations are relative to it.
-
-### Files to download
-
-Everything else is in this repository. The files below come from other sources because of their
-licenses or size; place them at these paths. The demo needs (1) and (3), plus (2) if you use the light
-checkpoint; the evaluation also needs (4); training needs (1), (2) and (5).
-
-```
-InstantHand/
-├── instanthand/models/rendering/mano_model/mano/
-│   ├── MANO_RIGHT.pkl                                  ← (1) MANO
-│   └── mano_mean_params.npz                              included (from WiLoR)
-├── instanthand/models/encoders/dinov3/weights/
-│   └── dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth    ← (2) DINOv3 (light checkpoint or training only)
-├── exps/neurips2026/stage2_best/
-│   └── model.safetensors                               ← (3) InstantHand checkpoint
-├── data/
-│   ├── eval/                                           ← (4) evaluation data, see Evaluation
-│   │   ├── InterHand/5/InterHand2.6M_5fps_batch1/
-│   │   └── HanCo/0191/
-│   └── train/                                          ← (5) training data, see Training
-├── diff-gaussian-rasterization/third_party/glm/          git submodule (clone with --recursive)
-└── demo/input/, demo/pose_bank/                          included
-```
-
-| | Place at | Source |
-|---|---|---|
-| (1) | `instanthand/models/rendering/mano_model/mano/MANO_RIGHT.pkl` | Register at [mano.is.tue.mpg.de](https://mano.is.tue.mpg.de), download `mano_v1_2.zip` and copy `mano_v1_2/models/MANO_RIGHT.pkl`. `MANO_LEFT.pkl` is not needed: left hands are mirrored and handled by the right-hand model. |
-| (2) | `instanthand/models/encoders/dinov3/weights/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth` | Needed only with the light checkpoint or for training. Meta's DINOv3 download (access request), see [DINOv3 weights](#dinov3-weights) below. |
-| (3) | `exps/neurips2026/stage2_best/model.safetensors` | One of the two checkpoints below, saved under this name. Another location works if you change `ckpt_dir` in `configs/demo.yaml`, `configs/eval_interhand.yaml`, `configs/eval_hanco.yaml` and `configs/eval_efficient.yaml` (or pass `--ckpt_dir`). |
-| (4) | `data/eval/` | Official InterHand2.6M and HanCo images plus our archives, see [Data preparation](#data-preparation). |
-| (5) | `data/train/` | The training datasets, converted to the layout of [Training data](#training-data). Not redistributed. |
-
-**Checkpoints.** Both are on [Hugging Face](https://huggingface.co/coolho1129/InstantHand) and give identical results; the full one
-includes the frozen DINOv3 ViT-L/16 backbone, so you do not need (2). Save the one you use as
-`exps/neurips2026/stage2_best/model.safetensors`:
-
-```bash
-pip install -U huggingface_hub
-hf download coolho1129/InstantHand checkpoints/instanthand_full.safetensors --local-dir .
-mkdir -p exps/neurips2026/stage2_best
-mv checkpoints/instanthand_full.safetensors exps/neurips2026/stage2_best/model.safetensors
-```
-
-For the light checkpoint, replace `instanthand_full` with `instanthand_light` in both commands.
-
-| Checkpoint | Size | DINOv3 file (2) | Download |
-|---|---|---|---|
-| full | 1.4 GB | not needed | [`checkpoints/instanthand_full.safetensors`](https://huggingface.co/coolho1129/InstantHand/blob/main/checkpoints/instanthand_full.safetensors) |
-| light | 0.2 GB | needed | [`checkpoints/instanthand_light.safetensors`](https://huggingface.co/coolho1129/InstantHand/blob/main/checkpoints/instanthand_light.safetensors) |
-
-The DINOv3 backbone in the full checkpoint is distributed under the DINOv3 License (a copy,
-[`DINOv3_LICENSE.md`](https://huggingface.co/coolho1129/InstantHand/blob/main/DINOv3_LICENSE.md), is included in the Hugging Face repository). The MANO model is not redistributed here (MANO license);
-`mano_mean_params.npz` is included as released by [WiLoR](https://github.com/rolpotamias/WiLoR).
-
-#### DINOv3 weights
-
-Only needed with the light checkpoint or for training. The DINOv3 weights are distributed by Meta
-after an access request; approval can take a while, so request it first.
-
-1. Request access on the [DINOv3 download page](https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/)
-   (linked from the [official repository](https://github.com/facebookresearch/dinov3)). Once
-   approved, Meta e-mails a list of download URLs for all DINOv3 models.
-2. From that list, download the ViT-L/16 backbone pretrained on LVD-1689M and save it as
-   `instanthand/models/encoders/dinov3/weights/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth`
-   (the path set by `encoder_weights_path` in the configs; keep the file name):
+1. **Install** the environment and the CUDA extensions: [Installation](docs/INSTALL.md).
+2. **Download** MANO and the full checkpoint (no DINOv3 request needed): [Files to download](docs/INSTALL.md#files-to-download).
+3. **Run the demo** on the included examples:
    ```bash
-   mkdir -p instanthand/models/encoders/dinov3/weights
-   wget -O instanthand/models/encoders/dinov3/weights/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth \
-        "<URL of dinov3_vitl16_pretrain_lvd1689m from the e-mail>"
-   ls -lh instanthand/models/encoders/dinov3/weights/
+   python demo.py --ids all
    ```
+   Results are written to `demo/output/<name>/`. To use your own photo, see [Your own images](docs/DEMO.md#your-own-images).
 
-The `facebook/dinov3-vitl16-pretrain-lvd1689m` repository on Hugging Face holds the same model in
-the Transformers format, which is not the file this code loads.
+Run every command from the repository root; config files and data paths are relative to it.
 
-## Demo
+## Documentation
 
-Each input is a hand image with its hand mask (or an RGBA image whose alpha channel is the
-mask) and the [WiLoR](https://github.com/rolpotamias/WiLoR) estimate of the hand (MANO pose and
-shape, 2D keypoints, camera) saved as a json file. The examples in `demo/input/`
-(`rgba/<id>.png` and `json/<id>.json`) show the format.
-
-```bash
-python demo.py --ids all                      # every example in demo/input
-python demo.py --ids in_the_wild3             # one example
-python demo.py --image hand.png --mask hand_mask.png --wilor_json hand.json
-```
-
-Outputs are written to `demo/output/<name>/`:
-
-| File | Content |
+| Guide | Contents |
 |---|---|
-| `input_rgba.png` | the composed input |
-| `source.png` | the network input (keypoint-centered crop) |
-| `self_render.png` | the avatar rendered from the input camera |
-| `canonical_360_yaw.mp4`, `canonical_360_pitch.mp4` | turntables of the avatar in the rest pose |
-| `pose_anim_view_*.mp4` | the avatar driven through the poses in `demo/pose_bank/` |
-| `camera.json` | the render cameras |
+| [Installation](docs/INSTALL.md) | environment, CUDA extensions, files to download (MANO, checkpoints, DINOv3) |
+| [Demo](docs/DEMO.md) | included examples, outputs, your own images, optional inference-time settings |
+| [Evaluation](docs/EVAL.md) | InterHand2.6M and HanCo data preparation, metrics and options, efficiency |
+| [Training](docs/TRAIN.md) | two-stage training, configs, training data layout |
 
-The cameras and video settings in `configs/demo.yaml` reproduce the supplementary videos
-(fixed 30° field of view, 256 px). Any entry can be changed from the command line, e.g.
-`--set "videos.kinds=[canonical]"` for the turntables only or `--set videos.res=512` for larger
-videos. `in_the_wild3` reproduces the in-the-wild vitiligo result on the project page.
-
-### Examples
-
-| id | Source | What it shows |
-|---|---|---|
-| `interhand_test_Capture0_ROM03_cam400272_15012` | InterHand2.6M test subject (unseen) | studio capture |
-| `interhand_..._15012_tattoo_tribal` | same, with a tattoo drawn by the authors | black pattern |
-| `interhand_..._15012_tattoo_butterfly` | same, with a tattoo drawn by the authors | colored pattern |
-| `in_the_wild1` | OHTA in-the-wild image | palm-side input |
-| `in_the_wild1_tattoo_spiral` | same, with a tattoo drawn by the authors | pattern on the palm |
-| `in_the_wild2` | WiLoR demo image | darker skin tone |
-| `in_the_wild3` | OHTA in-the-wild image | vitiligo |
-| `in_the_wild3_edit_darkskin` | same, skin tone edited by the authors | skin-tone edit |
-
-Example inputs are taken from InterHand2.6M (CC BY-NC 4.0), OHTA, and WiLoR; the tattoo and
-skin-tone examples are edited versions made by the authors. The driving poses in
-`demo/pose_bank/` are selected from the InterHand2.6M annotations.
-
-### Your own images
-
-1. **Hand mask.** Segment the hand with [SAM 3](https://github.com/facebookresearch/sam3)
-   (e.g. with the text prompt `hand`), keeping only the hand you want to reconstruct.
-2. **RGBA input (recommended).** Store the mask as the alpha channel, as in the examples:
-   ```bash
-   python -c "from PIL import Image; im = Image.open('my_hand.jpg').convert('RGBA'); \
-   im.putalpha(Image.open('my_hand_mask.png').convert('L')); im.save('demo/input/rgba/my_hand.png')"
-   ```
-   `demo.py` also accepts the image and the mask separately (`--image`, `--mask`).
-3. **WiLoR estimate.** In an environment with [WiLoR](https://github.com/rolpotamias/WiLoR) and its
-   checkpoints installed, run on the original image:
-   ```bash
-   python tools/gen_wilor_json.py --wilor_root /path/to/WiLoR --images my_hand.jpg --out_dir demo/input/json
-   ```
-   This writes `demo/input/json/my_hand.json` and a mesh overlay in `demo/input/json/vis/` to check
-   the fit. `--wilor_root` is your WiLoR clone, with its checkpoints in `pretrained_models/` and the
-   MANO files in `mano_data/` as in the WiLoR instructions. `--images` also takes folders; with
-   several hands in an image, `--detection_rank 1` picks the second most confident one, and
-   `--no_overlay` skips the rendering (e.g. on a headless server). The hand is estimated as a right
-   hand; for a left hand, mirror the image horizontally first (and use the mirrored image in step 2).
-4. **Run.** `python demo.py --ids my_hand`
-
-## Evaluation
-
-We follow the single-image protocol of HandAvatar and OHTA: InterHand2.6M
-`test/Capture0/ROM03_RT_No_Occlusion` with the source image of the official OHTA configuration,
-and HanCo sequence `0191` (cameras 3, 5, 6, 7) with the 76th frame of camera 6 as the source,
-evaluated zero-shot.
-
-### Data preparation
-
-The evaluation reads only the files below, all under `data/eval/`. Our annotations (and, for
-InterHand2.6M, the hand masks and the source frame) are provided as two small archives; the images
-come from the official datasets.
-
-```
-data/eval/
-├── InterHand/5/InterHand2.6M_5fps_batch1/
-│   ├── images/test/Capture0/ROM03_RT_No_Occlusion/cam*/image*.jpg                 official images
-│   ├── masks_removeblack/test/Capture0/ROM03_RT_No_Occlusion/cam*/image*.png       our archive
-│   ├── preprocess/test/Capture0/ROM03_RT_No_Occlusion/anno_cam_ffgs.pkl            our archive
-│   └── anchor/                                                                     our archive
-│       ├── img/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012.jpg
-│       ├── mask/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012.jpg
-│       └── anno/test_Capture0_ROM03_RT_No_Occlusion_cam400272_image15012_scale1.pkl
-└── HanCo/0191/
-    ├── rgb/cam{3,5,6,7}/000000{00..75}.jpg                                         official images
-    ├── mask/cam{3,5,6,7}/000000{00..75}.jpg                                        official masks
-    ├── pkl/anno_cam_hanco_scale1.pkl                                               our archive
-    └── anchor/
-        ├── rgb/cam6_00000075.jpg                                                   copied from rgb/ (below)
-        ├── mask/cam6_00000075.png                                                  converted from the mask (below)
-        └── anno/0191_cam6_00000075_scale1.pkl                                      our archive
-```
-
-The HanCo annotation file stores the image and mask paths of every evaluation frame relative to the
-repository root (`data/eval/HanCo/0191/...`), so the images must be at exactly these paths.
-
-**InterHand2.6M.**
-1. Download the InterHand2.6M images (5 fps, batch 1) from the
-   [official site](https://mks0601.github.io/InterHand2.6M/) and place
-   `images/test/Capture0/ROM03_RT_No_Occlusion/` under
-   `data/eval/InterHand/5/InterHand2.6M_5fps_batch1/` (a symlink is fine).
-2. Download `InstantHand_eval_InterHand2.6M.zip` (our hand masks and annotations, and the source
-   frame) from the [v1.0 release](https://github.com/coolho1129/InstantHand/releases/tag/v1.0) and
-   unzip it in the repository root (it extracts to `data/eval/InterHand/...`):
-   ```bash
-   wget https://github.com/coolho1129/InstantHand/releases/download/v1.0/InstantHand_eval_InterHand2.6M.zip
-   unzip InstantHand_eval_InterHand2.6M.zip
-   ```
-
-**HanCo.**
-1. Download the RGB images and hand masks (`HanCo_rgb.zip`, `HanCo_mask_hand.zip`) from the
-   [official site](https://lmb.informatik.uni-freiburg.de/resources/datasets/HanCo.en.html) and
-   copy sequence `0191` into the layout above:
-   ```bash
-   H=/path/to/HanCo          # unzipped HanCo_rgb.zip and HanCo_mask_hand.zip
-   D=data/eval/HanCo/0191
-   for c in 3 5 6 7; do
-     mkdir -p $D/rgb/cam$c $D/mask/cam$c
-     cp $H/rgb/0191/cam$c/000000{00..75}.jpg $D/rgb/cam$c/
-     cp $H/mask_hand/0191/cam$c/000000{00..75}.jpg $D/mask/cam$c/
-   done
-   mkdir -p $D/anchor/rgb $D/anchor/mask
-   cp $D/rgb/cam6/00000075.jpg $D/anchor/rgb/cam6_00000075.jpg
-   python -c "from PIL import Image; Image.open('$H/mask_hand/0191/cam6/00000075.jpg').convert('L').save('$D/anchor/mask/cam6_00000075.png')"
-   ```
-2. Download `InstantHand_eval_HanCo.zip` (our annotations for sequence 0191) from the
-   [v1.0 release](https://github.com/coolho1129/InstantHand/releases/tag/v1.0) and unzip it in the
-   repository root (it extracts to `data/eval/HanCo/0191/...`):
-   ```bash
-   wget https://github.com/coolho1129/InstantHand/releases/download/v1.0/InstantHand_eval_HanCo.zip
-   unzip InstantHand_eval_HanCo.zip
-   ```
-
-HanCo is provided for research purposes only; if you use it, please cite FreiHAND
-(Zimmermann et al., ICCV 2019) and HanCo (Zimmermann et al., 2021).
-
-### Running the evaluation
-
-```bash
-python eval_interhand.py --cfg configs/eval_interhand.yaml
-python eval_hanco.py --cfg configs/eval_hanco.yaml
-python eval_efficient.py                                       # avatar-construction time, FPS, memory
-```
-
-Each evaluation script builds the avatar once from the source frame and reports, in this order:
-
-| Section | `eval_interhand.py` | `eval_hanco.py` | Paper |
-|---|---|---|---|
-| main (PSNR / SSIM / LPIPS) | ✓ | ✓ | Tables 1, 2 |
-| boundary / alpha (boundary F-score, boundary IoU, alpha leakage, interior coverage) | ✓ | | Table 4 |
-| pose strata (palm-orientation and finger-articulation terciles, and All) | ✓ | ✓ | Table S11 |
-| temporal stability (excess frame-to-frame variation per camera, flicker calibration) | | ✓ | Table S13 |
-| self-reconstruction (`--self_recon`, a second pass; every test frame is its own source) | ✓ | ✓ | Table S2 |
-
-Expected results:
+## Results
 
 | Benchmark | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
 |---|---|---|---|
 | InterHand2.6M | 26.21 | 0.866 | 0.133 |
 | HanCo (zero-shot) | 20.18 | 0.836 | 0.188 |
 
-`eval_interhand.py` also reports boundary F-score 0.698, boundary IoU 0.562, alpha leakage 0.234
-and interior coverage 0.999. With `--self_recon`, the self-reconstruction rows are
-`w/o transfer` (the same checkpoint with the appearance head disabled) 26.58 / 0.869 / 0.133 and
-`Ours` 28.54 / 0.903 / 0.108 on InterHand2.6M, and 20.47 / 0.839 / 0.187 and 23.88 / 0.898 / 0.153
-on HanCo. Self-reconstruction builds two avatars per test frame and takes several minutes
-(about 4 min for InterHand2.6M and 7 min for HanCo on one RTX 6000 Ada).
-
-Options of both scripts:
-
-| Option | Effect |
-|---|---|
-| `--ckpt_dir <dir>` | evaluate another checkpoint (directory with `model.safetensors`) |
-| `--max_batches N` | first N test frames only (quick check) |
-| `--self_recon` / `--no_self_recon` | turn the self-reconstruction pass on / off (off by default; `self_recon.enabled` in the config) |
-| `--no_pose_strata` | skip the pose strata |
-| `--no_boundary` | skip the boundary metrics (`eval_interhand.py`) |
-| `--no_temporal` | skip the temporal stability (`eval_hanco.py`) |
-| `--verbose` | unrounded means, frame counts and median viewing-direction change per pose tercile, and setup logs |
-
-The metrics are averaged over frames and rounded as in the paper. Results on other GPUs can differ
-in the second decimal place.
-
-**Efficiency.** `eval_efficient.py` measures avatar construction (canonical Gaussians only, with the
-appearance head disabled, and the full model), novel-pose rendering speed and peak GPU memory on the
-HanCo frames. The numbers of the paper (Table 2 and Table S3: 2.84 s, of which 1.38 s for the canonical
-Gaussians; 161 FPS; 1.79 GB while rendering) were measured on one A100 (80 GB); other GPUs give different absolute
-numbers.
-
-## Training
-
-Training takes two stages: stage 1 learns the avatar predictor (geometry and base colors), stage 2
-trains the appearance head on top of the frozen stage-1 model. The released models were trained on
-4 RTX A6000 GPUs (about 25 h and 13 h).
-
-```bash
-# stage 1
-CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch --num_processes 4 train_stage1.py --cfg configs/train_stage1.yaml
-# stage 2 (starts from the released stage-1 weights by default, see stage1_ckpt_dir)
-CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch --num_processes 4 train_stage2.py --cfg configs/train_stage2.yaml
-```
-
-All settings come from the config files; the values in them reproduce the released training
-(batch size 6 × 2 accumulation steps for stage 1, 4 for stage 2, per GPU; 10 epochs of 2,000 steps).
-Change any entry from the command line with `--set` (values are parsed as YAML):
-
-```bash
-accelerate launch --num_processes 4 train_stage1.py --set optim.batch_size=4 --set data.root=/path/to/train
-accelerate launch --num_processes 4 train_stage2.py --set stage1_ckpt_dir=./exps/stage1/step_0020000
-accelerate launch --num_processes 4 train_stage1.py --resume_dir ./exps/stage1/step_0010000   # resume
-```
-
-Checkpoints are written to `output.save_dir` (`exps/stage1/step_XXXXXXX/`, `exps/stage2/step_XXXXXXX/`)
-every `output.ckpt_every` optimizer steps, with TensorBoard logs in `output.tb_dir`. Evaluate a
-stage-2 checkpoint with `--ckpt_dir exps/stage2/step_XXXXXXX`. Training needs the DINOv3 weights (2)
-and MANO (1).
-
-| Config | Content |
-|---|---|
-| `configs/train_stage1.yaml`, `configs/train_stage2.yaml` | model, losses, optimizer, schedule, outputs; `data_config` points to the data config |
-| `configs/train_data.yaml` | data root, every dataset setting (crops, cameras, masks, file layout, WiLoR keys) and the sampling policies of both stages (`policies.stage1`, `policies.stage2`) |
-
-The data config is checked strictly: a missing or misspelled setting, or a dataset without a policy,
-stops the training instead of falling back to a default.
-
-### Training data
-
-The training datasets are not redistributed; obtain each from its official source under its
-license. We train on PALM, InterHand2.6M (official training split only), HO3Dv3, Goliath and Hand
-Appearance (HARP), 304 subjects and 339,532 frames in total, and add synthetic source–target pairs
-generated following Zhao et al. (CVPR 2025) in stage 2. Each dataset is converted to this layout:
-
-```
-data/train/
-└── <dataset>/                        PALM, InterHand2.6M, HO3D_v3, Goliath, HARP, Synthetic
-    └── <subject>/                    one hand of one person (e.g. 0001_R, 0001_L)
-        ├── meta/                     optional, ignored
-        └── <group>/                  one observation bucket: a camera, a sequence, a session, ...
-            ├── seg_rgba/<frame>.png      RGBA image, alpha = hand mask (also looked up in seg_rgba/sam3/)
-            ├── wilor_out/<frame>.json    WiLoR estimate of the hand in this frame
-            └── silhouette/<frame>.png    optional hand silhouette for the silhouette and SAB losses
-                                          (the alpha of seg_rgba is used when it is missing)
-```
-
-- **Dataset folder names** must match the keys of `policies.stage1` / `policies.stage2` in
-  `configs/train_data.yaml`; only the datasets listed there are used (stage 1 has no `Synthetic`).
-  The policy of each dataset sets its sampling weight, the stride of the source frames and the
-  6 target frames per sample as self / same group / other groups (Appendix, Table S1).
-- **Left and right hands.** A subject is one hand: put the left and the right hand of a person in
-  separate subject folders (any names; we use `<id>_L` and `<id>_R`). The folder name is not
-  parsed. Whether a frame is mirrored is decided per frame by `hand_label` in its WiLoR json:
-  frames labeled `left` are flipped horizontally (image, mask, silhouette, 2D keypoints and the
-  x of the camera translation) and handled by the right-hand model, as at inference. All frames of a
-  sample come from one subject and share the source betas, so the two hands of a person must not
-  be mixed in one subject folder.
-- **Frames** are the frame ids present in both `seg_rgba/` and `wilor_out/`; frame ids that are
-  integers are ordered numerically. A group without any such frame is skipped.
-- **WiLoR json** (one hand per file):
-
-  | Key | Content |
-  |---|---|
-  | `pred_mano_params` | `global_orient` and `hand_pose` as rotation matrices, `betas` (10) |
-  | `pred_keypoints_2d` | 21 2D keypoints in full-image pixels (used for the square crop) |
-  | `pred_cam_t` | camera translation |
-  | `focal_length` | focal length in pixels (the principal point is the image center) |
-  | `hand_label` | `left` or `right`; left hands are mirrored to right hands |
-
-  The key names can be changed in `configs/train_data.yaml` (`json_*_key`).
-- Where a dataset provides no masks or MANO/camera annotations, estimate them with
-  [SAM 3](https://github.com/facebookresearch/sam3) and [WiLoR](https://github.com/rolpotamias/WiLoR)
-  (see [Your own images](#your-own-images)).
-
-Each sample picks a dataset by its weight, a subject uniformly, and a source frame, then crops every
-frame to a square around its 2D keypoints (enlarged 1.3×), resizes it to 256 × 256 and composites it
-on a random gray background.
-
-## Optional inference-time settings
-
-Both are off by default, are not used for the main results of the paper, and are available in
-`demo.py` only. The evaluation scripts always use the paper setting.
-
-**Seam blending** (`--seam_blend`). Where Gaussians colored from the input meet Gaussians
-completed from the prior, a color step can appear as a line in novel views. This replaces the
-step by a smooth ramp over ±3 mm around that boundary (`postprocess.seam_blend_mm`); geometry
-and all other colors are unchanged. At 3 mm it leaves the benchmarks unchanged or slightly
-better (PSNR: InterHand2.6M 26.21 → 26.23 dB, HanCo 20.18 → 20.22 dB). Wider bands remove
-stronger seams but can soften fine patterns on the fingers.
-
-**k=4 densification** (`--k4`). The trained avatar is interpolated onto the anchors of the next
-MANO subdivision level (4× as many Gaussians) with all scales multiplied by 0.6
-(`densify.scale`), which reduces the striations at strongly flexed knuckles (Appendix,
-Table S10 and Fig. S11). It needs a second copy of the network and more GPU memory while the
-avatar is built; rendering speed is unchanged.
-
-```bash
-python demo.py --ids all --seam_blend --k4
-```
+Avatar construction takes 2.84 s and rendering runs at 161 FPS on one A100.
+How to reproduce these numbers and the other tables of the paper: [Evaluation](docs/EVAL.md).
 
 ## License
 

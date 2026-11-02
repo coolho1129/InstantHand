@@ -95,8 +95,8 @@ Each evaluation script builds the avatar once from the source frame and reports,
 |---|---|---|---|
 | main (PSNR / SSIM / LPIPS) | ✓ | ✓ | Tables 1, 2 |
 | boundary / alpha (boundary F-score, boundary IoU, alpha leakage, interior coverage) | ✓ | | Table 4 |
-| pose strata (palm-orientation and finger-articulation terciles, and All) | ✓ | ✓ | Table S11 |
-| temporal stability (excess frame-to-frame variation per camera, flicker calibration) | | ✓ | Table S13 |
+| pose strata (palm-orientation and finger-articulation terciles, and All) | ✓ | ✓ | Table S12 |
+| temporal stability (excess frame-to-frame variation per camera, flicker calibration) | | ✓ | Table S14 |
 | self-reconstruction (`--self_recon`, a second pass; every test frame is its own source) | ✓ | ✓ | Table S2 |
 
 Expected results:

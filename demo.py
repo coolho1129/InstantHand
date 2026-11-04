@@ -101,7 +101,6 @@ class FramePreprocessor:
     _load_from_json = MultiHandDataset._load_from_json
     _square_bbox_from_kpts = MultiHandDataset._square_bbox_from_kpts
     _crop_square_with_pad = staticmethod(MultiHandDataset._crop_square_with_pad)
-    _apply_photo_aug_np = staticmethod(MultiHandDataset._apply_photo_aug_np)
     _process_frame_keypoint_centered = MultiHandDataset._process_frame_keypoint_centered
 
     def __init__(self, kp_enlarge: float = 1.3, alpha_thr: float = 0.5):

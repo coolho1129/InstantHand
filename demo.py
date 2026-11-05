@@ -17,6 +17,10 @@ Outputs in <out_dir>/<name>/:
     pose_anim_view_*.mp4        the avatar driven through the poses of a pose bank
     camera.json                 the render cameras
 
+Resolution: the network was trained on 256x256 crops only, so the network input and every
+output image and video are 256x256. There is no resolution option; preprocess.image_res and
+videos.res in older configs are ignored.
+
 The video cameras do not depend on the input photo: fixed field of view, looking at the hand
 along its anatomical axes (fingers up), starting from the side of the hand that the input
 photo shows, at the distance where the hand fills a fixed part of the frame over the whole
@@ -60,6 +64,9 @@ from instanthand.models.checkpoint import load_checkpoint, resolve_encoder_weigh
 warnings.filterwarnings("ignore")
 torch.set_float32_matmul_precision("high")
 
+# The network was trained on 256x256 crops only: the input crop and every render use this size.
+RES = 256
+
 
 # =============================================================================================
 # input: image (+ mask) + WiLoR json -> model inputs (the same crop as in training)
@@ -95,8 +102,8 @@ def compose_rgba(image_path: str, mask_path: Optional[str], out_path: str, borde
 
 class FramePreprocessor:
     """The per-frame preprocessing of the training dataset (MultiHandDataset) for one image:
-    WiLoR json parsing, keypoint-centered square crop, left-hand mirroring, background
-    compositing, crop intrinsics with the principal point moved to the crop center."""
+    WiLoR json parsing, keypoint-centered square crop (RES x RES), left-hand mirroring,
+    background compositing, crop intrinsics with the principal point moved to the crop center."""
 
     _load_from_json = MultiHandDataset._load_from_json
     _square_bbox_from_kpts = MultiHandDataset._square_bbox_from_kpts
@@ -106,13 +113,13 @@ class FramePreprocessor:
     def __init__(self, kp_enlarge: float = 1.3, alpha_thr: float = 0.5):
         self.cfg = MultiHandDatasetConfig(kp_enlarge=kp_enlarge, alpha_thr=alpha_thr)
 
-    def __call__(self, rgba_path: str, wilor_json: str, image_res: int, multiply: int, bg_value: float,
+    def __call__(self, rgba_path: str, wilor_json: str, multiply: int, bg_value: float,
                  device: torch.device) -> Dict[str, Any]:
         wilor = self._load_from_json(wilor_json)
         if wilor["focal_full"] is None:
             raise KeyError(f"{wilor_json}: no focal_length")
         rgb, mask, _, intr, cam_t, _ = self._process_frame_keypoint_centered(
-            rgba_path, wilor, image_res, multiply, bg_value)
+            rgba_path, wilor, RES, multiply, bg_value)
         eye = torch.eye(4, dtype=torch.float32, device=device).view(1, 1, 4, 4)
         intr = intr.to(device).view(1, 1, 4, 4)
         return {
@@ -740,19 +747,14 @@ def _even(img: np.ndarray) -> np.ndarray:
     return img[:img.shape[0] - img.shape[0] % 2, :img.shape[1] - img.shape[1] % 2]
 
 
-def _video_res(cfg: Dict[str, Any]) -> int:
-    """videos.res (0 or missing: the network input resolution)."""
-    res = int(cfg["videos"].get("res", 0) or 0)
-    return res if res > 0 else int(cfg["preprocess"]["image_res"])
-
-
 @torch.no_grad()
 def make_turntables(model, avatar, inputs, save_root: Path, cfg: Dict[str, Any], cams: Dict[str, Camera]) -> None:
     """The avatar in the MANO frame (rest pose or the input finger pose), seen from a full yaw
-    turn and a pitch swing. The start view looks at the side of the hand the input photo shows
-    (camera.start_side: auto) with the fingers up (camera.canonical_orientation: anatomical)."""
+    turn and a pitch swing, rendered at RES x RES. The start view looks at the side of the hand
+    the input photo shows (camera.start_side: auto) with the fingers up
+    (camera.canonical_orientation: anatomical)."""
     vcfg, ccfg = cfg["videos"], cfg["camera"]
-    res = _video_res(cfg)
+    res = RES
     dev = inputs["render_intrs"].device
     K = fixed_fov_intrinsics(ccfg["fov_deg"], res, res, dev)
     anchor = inputs["mano_params"]
@@ -779,12 +781,13 @@ def make_turntables(model, avatar, inputs, save_root: Path, cfg: Dict[str, Any],
 @torch.no_grad()
 def make_pose_animation(model, avatar, inputs, save_root: Path, cfg: Dict[str, Any], cams: Dict[str, Camera]) -> None:
     """The avatar driven through the pose bank (held poses joined by slerp transitions), seen from
-    the start camera turned by each of pose_view_degs about the image up axis.
+    the start camera turned by each of pose_view_degs about the image up axis, rendered at
+    RES x RES per view.
     videos.pose_global 'rest': the pose-bank global orientations are replaced by zero, so the
     hand stays in the orientation of the turntable and only the fingers move. 'bank': the
     global orientations are kept and the camera follows their mean."""
     vcfg, ccfg = cfg["videos"], cfg["camera"]
-    res = _video_res(cfg)
+    res = RES
     poses_np, names = load_pose_bank(cfg["pose_bank"])
     ids = list(vcfg["pose_ids"]) if vcfg.get("pose_ids") else list(range(len(poses_np)))
     if vcfg["pose_max"] > 0:
@@ -875,8 +878,12 @@ def run_one(model, prep: FramePreprocessor, cfg, name: str, image: str, mask: Op
     save_root.mkdir(parents=True, exist_ok=True)
     pcfg = cfg["preprocess"]
     rgba = compose_rgba(image, mask, str(save_root / "input_rgba.png"), pcfg["border_feather"])
-    inputs = prep(rgba, wilor_json, pcfg["image_res"], pcfg["multiply"], pcfg["bg_value"], device)
-    H = W = int(inputs["image"].shape[-1])
+    inputs = prep(rgba, wilor_json, pcfg["multiply"], pcfg["bg_value"], device)
+    got = tuple(inputs["image"].shape[-2:])
+    if got != (RES, RES):
+        raise RuntimeError(f"{name}: the network input is {got[0]}x{got[1]}, but the model was trained on "
+                           f"{RES}x{RES} only (check preprocess.multiply)")
+    H = W = RES
     src = inputs["image"][0, 0].permute(1, 2, 0).clamp(0, 1).cpu().numpy()
     Image.fromarray((src * 255.0 + 0.5).astype(np.uint8)).save(save_root / "source.png")
 
@@ -900,7 +907,8 @@ def run_one(model, prep: FramePreprocessor, cfg, name: str, image: str, mask: Op
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="InstantHand demo: hand image -> avatar videos")
+    p = argparse.ArgumentParser(description="InstantHand demo: hand image -> avatar videos "
+                                            f"(all outputs are {RES}x{RES}, the training resolution)")
     p.add_argument("--cfg", default="configs/demo.yaml")
     p.add_argument("--ids", default="", help="comma-separated example ids in <input_root>, or 'all'")
     p.add_argument("--image", default="")
@@ -924,6 +932,10 @@ def parse_args():
         for k in parents:
             node = node.setdefault(k, {})
         node[leaf] = yaml.safe_load(value)
+    for sec, key in (("preprocess", "image_res"), ("videos", "res")):
+        if key in (cfg.get(sec) or {}):
+            print(f"[res] {sec}.{key} is no longer used: the resolution is fixed at {RES}x{RES}")
+            cfg[sec].pop(key)
     if args.seam_blend:
         cfg.setdefault("postprocess", {})["seam_blend"] = True
     if args.k4:
@@ -948,7 +960,7 @@ def main():
         print(f"[k4] densification on: k=3 prediction interpolated onto k=4 anchors, "
               f"scale x{float(cfg['densify'].get('scale', 0.6))}")
     prep = FramePreprocessor(kp_enlarge=cfg["preprocess"]["kp_enlarge"], alpha_thr=cfg["preprocess"]["alpha_thr"])
-    print(f"[run] {len(jobs)} input(s): {[j[0] for j in jobs]}")
+    print(f"[run] {len(jobs)} input(s): {[j[0] for j in jobs]}; resolution {RES}x{RES}")
     for name, image, mask, wilor_json in jobs:
         try:
             run_one(model, prep, cfg, name, image, mask or None, wilor_json, device, model4)

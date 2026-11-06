@@ -2,7 +2,7 @@
 
 # InstantHand: Feed-Forward 3D Gaussian Splatting for Animatable Hand Avatar Reconstruction from a Single Image
 
-<a href="https://neurips.cc/Conferences/2026"><img src="https://img.shields.io/badge/NeurIPS-2026-6a1b9a?style=for-the-badge" alt="NeurIPS 2026"></a>
+### NeurIPS 2026
 
 [Chanho Kim](https://coolho1129.github.io) ·
 [Muhammad Salman Ali](https://salmanali96.github.io/) ·

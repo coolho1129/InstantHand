@@ -1,19 +1,32 @@
+<div align="center">
+
 # InstantHand: Feed-Forward 3D Gaussian Splatting for Animatable Hand Avatar Reconstruction from a Single Image
 
-**NeurIPS 2026**
+<a href="https://neurips.cc/Conferences/2026"><img src="https://img.shields.io/badge/NeurIPS-2026-6a1b9a?style=for-the-badge" alt="NeurIPS 2026"></a>
 
-[Chanho Kim](https://coolho1129.github.io),
-[Muhammad Salman Ali](https://salmanali96.github.io/),
-[Kyeonghwan Gwak](https://khgwak.github.io/about/),
-[Muhammad Shaheryar](https://scholar.google.com/citations?user=v9FnXzwAAAAJ&hl=en),
-[Incheol Park](https://github.com/inchulnim123),
-[Jeongwan On](https://on-jungwoan.github.io/),
+[Chanho Kim](https://coolho1129.github.io) ·
+[Muhammad Salman Ali](https://salmanali96.github.io/) ·
+[Kyeonghwan Gwak](https://khgwak.github.io/about/) ·
+[Muhammad Shaheryar](https://scholar.google.com/citations?user=v9FnXzwAAAAJ&hl=en) ·
+[Incheol Park](https://github.com/inchulnim123) ·
+[Jeongwan On](https://on-jungwoan.github.io/) ·
 [Seungryul Baek](https://sites.google.com/site/bsrvision00/)<sup>*</sup>
 
- UNIST
-&nbsp;&nbsp;<sup>*</sup> Corresponding author
+<a href="https://www.unist.ac.kr/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/unist_logo_dark.svg">
+    <img src="assets/unist_logo.svg" height="34" alt="UNIST">
+  </picture>
+</a>
 
-**[Project Page](https://coolho1129.github.io/InstantHand-page/) | [Paper](https://arxiv.org/abs/2611.08330) | [Checkpoints](https://huggingface.co/coolho1129/InstantHand) | [Evaluation Data](https://github.com/coolho1129/InstantHand/releases/tag/v1.0)**
+<sup>*</sup> Corresponding author
+
+<a href="https://coolho1129.github.io/InstantHand-page/"><img src="https://img.shields.io/badge/Project-Page-1f6feb?logo=googlechrome&logoColor=white" alt="Project Page"></a>
+<a href="https://arxiv.org/abs/2611.08330"><img src="https://img.shields.io/badge/arXiv-2611.08330-b31b1b?logo=arxiv&logoColor=white" alt="arXiv"></a>
+<a href="https://huggingface.co/coolho1129/InstantHand"><img src="https://img.shields.io/badge/Hugging%20Face-Checkpoints-ffd21e?logo=huggingface&logoColor=black" alt="Checkpoints on Hugging Face"></a>
+<a href="https://github.com/coolho1129/InstantHand/releases/tag/v1.0"><img src="https://img.shields.io/badge/Evaluation%20Data-v1.0-24292f?logo=github&logoColor=white" alt="Evaluation data"></a>
+
+</div>
 
 <p align="center">
   <img src="assets/teaser.webp" width="100%" alt="A single input hand image, one forward pass, and the reconstructed canonical 3D Gaussian hand avatar rotating.">

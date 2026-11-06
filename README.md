@@ -2,29 +2,22 @@
 
 # InstantHand: Feed-Forward 3D Gaussian Splatting for Animatable Hand Avatar Reconstruction from a Single Image
 
-### NeurIPS 2026
-
-[Chanho Kim](https://coolho1129.github.io) ·
-[Muhammad Salman Ali](https://salmanali96.github.io/) ·
-[Kyeonghwan Gwak](https://khgwak.github.io/about/) ·
-[Muhammad Shaheryar](https://scholar.google.com/citations?user=v9FnXzwAAAAJ&hl=en) ·
-[Incheol Park](https://github.com/inchulnim123) ·
-[Jeongwan On](https://on-jungwoan.github.io/) ·
+[Chanho Kim](https://coolho1129.github.io)&emsp;
+[Muhammad Salman Ali](https://salmanali96.github.io/)&emsp;
+[Kyeonghwan Gwak](https://khgwak.github.io/about/)&emsp;
+[Muhammad Shaheryar](https://scholar.google.com/citations?user=v9FnXzwAAAAJ&hl=en)  
+[Incheol Park](https://github.com/inchulnim123)&emsp;
+[Jeongwan On](https://on-jungwoan.github.io/)&emsp;
 [Seungryul Baek](https://sites.google.com/site/bsrvision00/)<sup>*</sup>
 
-<a href="https://www.unist.ac.kr/">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/unist_logo_dark.svg">
-    <img src="assets/unist_logo.svg" height="34" alt="UNIST">
-  </picture>
-</a>
+UNIST, South Korea&emsp;&emsp;<sup>*</sup>Corresponding author
 
-<sup>*</sup> Corresponding author
+**NeurIPS 2026**
 
-<a href="https://coolho1129.github.io/InstantHand-page/"><img src="https://img.shields.io/badge/Project-Page-1f6feb?logo=googlechrome&logoColor=white" alt="Project Page"></a>
-<a href="https://arxiv.org/abs/2611.08330"><img src="https://img.shields.io/badge/arXiv-2611.08330-b31b1b?logo=arxiv&logoColor=white" alt="arXiv"></a>
-<a href="https://huggingface.co/coolho1129/InstantHand"><img src="https://img.shields.io/badge/Hugging%20Face-Checkpoints-ffd21e?logo=huggingface&logoColor=black" alt="Checkpoints on Hugging Face"></a>
-<a href="https://github.com/coolho1129/InstantHand/releases/tag/v1.0"><img src="https://img.shields.io/badge/Evaluation%20Data-v1.0-24292f?logo=github&logoColor=white" alt="Evaluation data"></a>
+<a href="https://coolho1129.github.io/InstantHand-page/"><img src="https://img.shields.io/badge/Project-Page-blue" alt="Project Page"></a>
+<a href="https://arxiv.org/abs/2611.08330"><img src="https://img.shields.io/badge/Paper-arXiv-b31b1b" alt="Paper on arXiv"></a>
+<a href="https://huggingface.co/coolho1129/InstantHand"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Checkpoints-ffd21e" alt="Checkpoints on Hugging Face"></a>
+<a href="https://github.com/coolho1129/InstantHand/releases/tag/v1.0"><img src="https://img.shields.io/badge/Evaluation-Data-green" alt="Evaluation data"></a>
 
 </div>
 

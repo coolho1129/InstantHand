@@ -10,7 +10,7 @@
 [Jeongwan On](https://on-jungwoan.github.io/),
 [Seungryul Baek](https://sites.google.com/site/bsrvision00/)<sup>*</sup>
 
-[UNIST Vision & Learning Lab](https://vision.unist.ac.kr/), UNIST
+ UNIST
 &nbsp;&nbsp;<sup>*</sup> Corresponding author
 
 **[Project Page](https://coolho1129.github.io/InstantHand-page/) | [Paper](https://arxiv.org/abs/2611.08330) | [Checkpoints](https://huggingface.co/coolho1129/InstantHand) | [Evaluation Data](https://github.com/coolho1129/InstantHand/releases/tag/v1.0)**

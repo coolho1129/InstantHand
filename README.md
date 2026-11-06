@@ -13,8 +13,7 @@
 [UNIST Vision & Learning Lab](https://vision.unist.ac.kr/), UNIST
 &nbsp;&nbsp;<sup>*</sup> Corresponding author
 
-<!-- Replace "(coming soon)" with a link to the first public version of the paper (OpenReview, arXiv, or proceedings) -->
-**[Project Page](https://coolho1129.github.io/InstantHand-page/) | Paper (coming soon) | [Checkpoints](https://huggingface.co/coolho1129/InstantHand) | [Evaluation Data](https://github.com/coolho1129/InstantHand/releases/tag/v1.0)**
+**[Project Page](https://coolho1129.github.io/InstantHand-page/) | [Paper](https://arxiv.org/abs/2611.08330) | [Checkpoints](https://huggingface.co/coolho1129/InstantHand) | [Evaluation Data](https://github.com/coolho1129/InstantHand/releases/tag/v1.0)**
 
 <p align="center">
   <img src="assets/teaser.webp" width="100%" alt="A single input hand image, one forward pass, and the reconstructed canonical 3D Gaussian hand avatar rotating.">

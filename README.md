@@ -15,7 +15,7 @@ UNIST, South Korea&emsp;&emsp;<sup>*</sup>Corresponding author
 **NeurIPS 2026**
 
 <a href="https://coolho1129.github.io/InstantHand-page/"><img src="https://img.shields.io/badge/Project-Page-blue" alt="Project Page"></a>
-<a href="https://arxiv.org/abs/2611.08330"><img src="https://img.shields.io/badge/Paper-arXiv-b31b1b" alt="Paper on arXiv"></a>
+<a href="https://arxiv.org/abs/2611.08330"><img src="https://img.shields.io/badge/arXiv-2611.08330-b31b1b?logo=arxiv&logoColor=white" alt="arXiv 2611.08330"></a>
 <a href="https://openreview.net/forum?id=hlvxGsP8zJ"><img src="https://img.shields.io/badge/OpenReview-8c1b13" alt="OpenReview forum"></a>
 <a href="https://neurips.cc/virtual/2026/loc/sydney/poster/150475"><img src="https://img.shields.io/badge/NeurIPS-2026-6f42c1" alt="NeurIPS 2026 conference page"></a>
 <a href="https://huggingface.co/coolho1129/InstantHand"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Checkpoints-ffd21e" alt="Checkpoints on Hugging Face"></a>

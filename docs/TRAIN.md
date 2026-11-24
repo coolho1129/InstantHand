@@ -12,8 +12,8 @@ trains the appearance head on top of the frozen stage-1 model. The released mode
 ```bash
 # stage 1
 CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch --num_processes 4 train_stage1.py --cfg configs/train_stage1.yaml
-# stage 2 (starts from the released stage-1 weights by default, see stage1_ckpt_dir)
-CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch --num_processes 4 train_stage2.py --cfg configs/train_stage2.yaml
+# stage 2 (starts from your stage-1 checkpoint; stage-1 weights are not released)
+CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch --num_processes 4 train_stage2.py --cfg configs/train_stage2.yaml --set stage1_ckpt_dir=./exps/stage1/step_0020000
 ```
 
 All settings come from the config files; the values in them reproduce the released training

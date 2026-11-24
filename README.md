@@ -37,7 +37,7 @@ cd InstantHand
 ```
 
 1. **Install** the environment and the CUDA extensions: [Installation](docs/INSTALL.md).
-2. **Download** MANO and the full checkpoint (no DINOv3 request needed): [Files to download](docs/INSTALL.md#files-to-download).
+2. **Download** MANO and the full checkpoint (no DINOv3 request needed for the demo or evaluation; training needs it): [Files to download](docs/INSTALL.md#files-to-download).
 3. **Run the demo** on the included examples:
    ```bash
    python demo.py --ids all
@@ -50,7 +50,7 @@ Run every command from the repository root; config files and data paths are rela
 
 | Guide | Contents |
 |---|---|
-| [Installation](docs/INSTALL.md) | environment, CUDA extensions, files to download (MANO, checkpoints, DINOv3) |
+| [Installation](docs/INSTALL.md) | environment, CUDA extensions, files to download (MANO, checkpoint; DINOv3 only for the light checkpoint or training) |
 | [Demo](docs/DEMO.md) | included examples, outputs, your own images, optional inference-time settings |
 | [Evaluation](docs/EVAL.md) | InterHand2.6M and HanCo data preparation, metrics and options, efficiency |
 | [Training](docs/TRAIN.md) | two-stage training, configs, training data layout |
